@@ -25,6 +25,7 @@ import {
 import { OWNER_ID, ROLE_NAMES } from '../config';
 import { pool } from '../lib/db';
 import { getAllServices } from '../lib/serviceStore';
+import { buildServiceCard } from './card';
 
 // ─── Permission Presets ───────────────────────────────────────────────────────
 
@@ -1039,21 +1040,42 @@ export async function handlePanelProductAssignUser(interaction: UserSelectMenuIn
     const { updateServiceSeller } = await import('../lib/serviceStore');
     await updateServiceSeller(serviceId, newSeller.id);
 
-    // Update marketplace channel permissions
-    const guild = interaction.guild;
-    const chan   = guild.channels.cache.find(c => c.name === service.name && c.isTextBased()) as GuildChannel | undefined;
+    const guild      = interaction.guild;
+    const sellerRole = guild.roles.cache.find(r => r.name === ROLE_NAMES.SELLER);
+
+    // Cari channel marketplace yang sudah ada
+    let chan = guild.channels.cache.find(c => c.name === service.name && c.isTextBased()) as GuildChannel | undefined;
+
     if (chan) {
-        // Remove old seller's allow overwrite if any
+        // Hapus overwrite seller lama jika ganti seller
         if (service.seller_id && service.seller_id !== newSeller.id) {
             await chan.permissionOverwrites.delete(service.seller_id).catch(() => {});
         }
-        // Find Seller role
-        const sellerRole = guild.roles.cache.find(r => r.name === ROLE_NAMES.SELLER);
         if (sellerRole) {
             await chan.permissionOverwrites.edit(sellerRole.id, { ViewChannel: false }).catch(() => {});
         }
-        // Allow new seller
         await chan.permissionOverwrites.edit(newSeller.id, { ViewChannel: true }).catch(() => {});
+    } else {
+        // Channel belum ada — buat otomatis di kategori 🛒 MARKETPLACE
+        const catMarket = guild.channels.cache.find(
+            c => c.name === '\uD83D\uDED2 MARKETPLACE' && c.type === ChannelType.GuildCategory
+        );
+        const perms: any[] = [
+            { id: guild.id, deny: [PermissionFlagsBits.SendMessages] },
+        ];
+        if (sellerRole) perms.push({ id: sellerRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+        perms.push({ id: newSeller.id, allow: [PermissionFlagsBits.ViewChannel] });
+
+        const newChan = await guild.channels.create({
+            name:                 service.name,
+            parent:               catMarket?.id,
+            permissionOverwrites: perms,
+        } as any);
+        chan = newChan as unknown as GuildChannel;
+
+        // Post service card di channel baru
+        const { embed, row } = await buildServiceCard(service);
+        await (newChan as any).send({ embeds: [embed], components: [row] });
     }
 
     await interaction.update({
@@ -1062,9 +1084,9 @@ export async function handlePanelProductAssignUser(interaction: UserSelectMenuIn
                 .addFields(
                     { name: '\u{1F4E6} Produk',  value: `${service.emoji} ${service.title}`, inline: true },
                     { name: '\u{1F464} Seller',  value: `${newSeller}`, inline: true },
-                    { name: '\u{1F4CB} Channel', value: chan ? `<#${chan.id}>` : `\`${service.name}\` (belum ada channel)`, inline: true },
+                    { name: '\u{1F4CB} Channel', value: `<#${chan.id}>`, inline: true },
                 )
-                .setDescription(chan ? '\u{1F510} Permissions channel sudah diperbarui.' : '\u26A0\uFE0F Channel tidak ditemukan — jalankan `/setup` untuk membuat channel.'),
+                .setDescription('\u{1F510} Channel & permissions sudah diperbarui.'),
         ],
         components: [
             new ActionRowBuilder<ButtonBuilder>().addComponents(
