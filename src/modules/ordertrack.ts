@@ -15,7 +15,7 @@ import {
     TextChannel,
 } from 'discord.js';
 import { pool } from '../lib/db';
-import { ROLE_NAMES } from '../config';
+import { ROLE_NAMES, OWNER_ID } from '../config';
 import { sendStatusUpdateDM } from './invoice';
 import { getBotConfig } from '../lib/botConfig';
 
@@ -337,6 +337,12 @@ export async function handleClaimOrderButton(
 
     const cfg = await getBotConfig();
 
+    // Simpan seller_id ke order record berdasarkan channel name
+    await pool.query(
+        'UPDATE orders SET seller_id = $1 WHERE channel_name = $2 AND seller_id IS NULL',
+        [interaction.user.id, orderChan.name]
+    ).catch(() => {});
+
     // Update notif embed: disable tombol klaim, tambah info seller
     const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
         .setDescription(
@@ -355,4 +361,176 @@ export async function handleClaimOrderButton(
                 .setColor('#5865F2')
         ]
     }).catch(() => {});
+}
+
+// ── Buyer: klik 💸 Sudah Transfer ────────────────────────────────────────────
+export async function handlePaymentBuyerBtn(
+    interaction: import('discord.js').ButtonInteraction
+): Promise<void> {
+    if (!interaction.guild || !interaction.channel) return;
+
+    const chanId  = interaction.customId.replace('pay:transfer:', '');
+    const chan     = interaction.channel as TextChannel;
+
+    // Validasi channel sesuai customId
+    if (chan.id !== chanId) {
+        await interaction.reply({ content: '❌ Tombol tidak valid.', ephemeral: true });
+        return;
+    }
+
+    // Cari order berdasarkan channel_name
+    const { rows } = await pool.query('SELECT * FROM orders WHERE channel_name = $1', [chan.name]);
+    if (!rows[0]) {
+        await interaction.reply({ content: '❌ Order tidak ditemukan.', ephemeral: true });
+        return;
+    }
+    const order = rows[0];
+
+    // Hanya buyer yang bisa klik
+    if (interaction.user.id !== order.buyer_id) {
+        await interaction.reply({ content: '❌ Hanya buyer yang bisa konfirmasi transfer.', ephemeral: true });
+        return;
+    }
+
+    if (order.payment_confirmed) {
+        await interaction.reply({ content: '⚠️ Pembayaran sudah pernah dikonfirmasi.', ephemeral: true });
+        return;
+    }
+
+    // Disable tombol agar tidak bisa diklik dua kali
+    await interaction.update({ components: [] });
+
+    // Prompt upload bukti di tiket
+    await chan.send({
+        embeds: [new EmbedBuilder()
+            .setTitle('💸 Transfer Dikonfirmasi')
+            .setDescription(
+                `${interaction.user} sudah konfirmasi transfer!\n\n` +
+                `📎 **Kirim screenshot bukti transfer di bawah ini.**\n` +
+                `Seller akan mengkonfirmasi dana masuk sebelum mulai mengerjakan.`
+            )
+            .setColor('#FFCC00')
+            .setTimestamp()
+        ],
+    });
+
+    // Notif ke payment-verification dengan tombol konfirmasi untuk seller
+    const paymentChan = interaction.guild.channels.cache.find(
+        c => c.name === '💰-payment-verification' && c.isTextBased()
+    ) as TextChannel | undefined;
+
+    if (paymentChan) {
+        const embed = new EmbedBuilder()
+            .setTitle('💸 Buyer Sudah Transfer — Konfirmasi Dana')
+            .setDescription(
+                `**Invoice:** \`${order.invoice_no}\`\n` +
+                `**Layanan:** ${order.service_id.toUpperCase()}\n` +
+                `**Buyer:** <@${order.buyer_id}>\n` +
+                `**Channel Tiket:** ${chan}\n\n` +
+                `Cek bukti transfer di channel tiket, lalu konfirmasi dana masuk.`
+            )
+            .setColor('#FFCC00')
+            .setTimestamp();
+
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`pay:seller:${chan.id}`)
+                .setLabel('✅ Konfirmasi Dana Masuk')
+                .setStyle(ButtonStyle.Success),
+        );
+
+        await paymentChan.send({ embeds: [embed], components: [row] });
+    }
+}
+
+// ── Seller: klik ✅ Konfirmasi Dana Masuk ────────────────────────────────────
+export async function handlePaymentSellerBtn(
+    interaction: import('discord.js').ButtonInteraction
+): Promise<void> {
+    if (!interaction.guild) return;
+
+    const member = interaction.member as GuildMember;
+    if (!isStaff(member)) {
+        await interaction.reply({ content: '❌ Hanya Staff yang bisa konfirmasi pembayaran.', ephemeral: true });
+        return;
+    }
+
+    const chanId   = interaction.customId.replace('pay:seller:', '');
+    const orderChan = interaction.guild.channels.cache.get(chanId) as TextChannel | undefined;
+
+    if (!orderChan) {
+        await interaction.update({ content: '⚠️ Channel tiket tidak ditemukan (mungkin sudah ditutup).', embeds: [], components: [] });
+        return;
+    }
+
+    const { rows } = await pool.query('SELECT * FROM orders WHERE channel_name = $1', [orderChan.name]);
+    if (!rows[0]) {
+        await interaction.reply({ content: '❌ Order tidak ditemukan.', ephemeral: true });
+        return;
+    }
+    const order = rows[0];
+
+    const isAdmin = interaction.user.id === OWNER_ID ||
+        member.roles.cache.some(r => [ROLE_NAMES.OWNER, ROLE_NAMES.ADMIN].includes(r.name as any));
+
+    // Cek seller yang klaim
+    if (!order.seller_id && !isAdmin) {
+        await interaction.reply({ content: '⚠️ Belum ada seller yang klaim order ini. Klaim dulu lewat tombol **Klaim Order** sebelum konfirmasi.', ephemeral: true });
+        return;
+    }
+    if (order.seller_id && order.seller_id !== interaction.user.id && !isAdmin) {
+        await interaction.reply({ content: '❌ Order ini diklaim seller lain. Hanya seller yang mengklaim order atau Admin/Owner yang bisa konfirmasi.', ephemeral: true });
+        return;
+    }
+    if (order.payment_confirmed) {
+        await interaction.update({ content: '⚠️ Pembayaran sudah dikonfirmasi sebelumnya.', embeds: [], components: [] });
+        return;
+    }
+
+    // Update DB: konfirmasi + in_progress + simpan seller_id kalau belum ada
+    await pool.query(
+        `UPDATE orders
+         SET payment_confirmed = TRUE,
+             status            = 'in_progress',
+             updated_at        = NOW(),
+             seller_id         = COALESCE(seller_id, $1)
+         WHERE channel_name = $2`,
+        [interaction.user.id, orderChan.name]
+    );
+
+    // Disable tombol di payment-verification
+    await interaction.update({
+        embeds: [EmbedBuilder.from(interaction.message.embeds[0])
+            .setDescription(
+                (interaction.message.embeds[0].description ?? '') +
+                `\n\n✅ **Dikonfirmasi oleh:** ${interaction.user} (<t:${Math.floor(Date.now() / 1000)}:R>)`
+            )
+            .setColor('#00FF88')
+        ],
+        components: [],
+    });
+
+    // Notif di channel tiket
+    await orderChan.send({
+        embeds: [new EmbedBuilder()
+            .setTitle('✅ Pembayaran Dikonfirmasi!')
+            .setDescription(
+                `${interaction.user} sudah mengkonfirmasi dana masuk.\n\n` +
+                `🔵 **Status order: Sedang Dikerjakan**\n` +
+                `Seller akan segera memulai pengerjaan order kamu!`
+            )
+            .setColor('#00FF88')
+            .setTimestamp()
+        ],
+    }).catch(() => {});
+
+    // DM buyer
+    await sendStatusUpdateDM(
+        interaction.client,
+        order.buyer_id,
+        order.invoice_no,
+        'in_progress',
+        'Pembayaran dikonfirmasi oleh seller. Order sudah mulai dikerjakan!',
+        interaction.guild.name
+    );
 }

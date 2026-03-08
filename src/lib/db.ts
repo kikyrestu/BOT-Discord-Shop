@@ -87,6 +87,12 @@ export async function initDB(): Promise<void> {
         );
     `);
 
+    // Migrate: tambah kolom baru kalau belum ada
+    await pool.query(`
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS seller_id          TEXT    DEFAULT NULL;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_confirmed  BOOLEAN NOT NULL DEFAULT FALSE;
+    `).catch(() => {});
+
     // Seed default services kalau tabel masih kosong
     const { rowCount } = await pool.query('SELECT 1 FROM services LIMIT 1');
     if (!rowCount || rowCount === 0) {

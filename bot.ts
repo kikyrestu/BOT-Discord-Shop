@@ -14,10 +14,10 @@ import { handleRekberCommand, handleRekberModal, handleRekberButton } from './sr
 import { handlePromoMessage } from './src/modules/promo';
 import { handleReviewButton, handleReviewModal, handleReviewReport, handleReviewsCommand } from './src/modules/review';
 import { handlePaymentCommand, handlePaymentModal, handlePaymentAutocomplete } from './src/modules/payment';
-import {
-    handleOrderStatusCommand, handleOrderUpdateCommand, handleOrderAutocomplete,
+import { handleOrderStatusCommand, handleOrderUpdateCommand, handleOrderAutocomplete,
     handleClaimOrderButton, handleOrderUpdateInvoiceSelect,
     handleOrderUpdateStatusSelect, handleOrderUpdateNoteModal,
+    handlePaymentBuyerBtn, handlePaymentSellerBtn,
 } from './src/modules/ordertrack';
 import {
     handleBlacklistCommand, handleBlacklistBack, handleBlacklistAdd,
@@ -58,6 +58,9 @@ import {
     handlePanelRoleChannel, handlePanelRoleChannelPick, handlePanelRoleChannelChan,
     handlePanelRoleChannelPerm, handlePanelRoleList,
     handlePanelConfig, handlePanelBlacklist,
+    handlePanelMember, handlePanelMemberUser,
+    handlePanelMemberAdd, handlePanelMemberAddRole,
+    handlePanelMemberRm, handlePanelMemberRmRole,
 } from './src/modules/panel';
 import { updateMemberStat } from './src/modules/stats';
 import { pool } from './src/lib/db';
@@ -308,6 +311,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 await handleReviewReport(interaction);
             }
 
+            if (interaction.customId.startsWith('pay:transfer:')) {
+                await handlePaymentBuyerBtn(interaction);
+            }
+
+            if (interaction.customId.startsWith('pay:seller:')) {
+                await handlePaymentSellerBtn(interaction);
+            }
+
             if (interaction.customId === 'setup_confirm') {
                 await handleSetupConfirm(interaction);
             }
@@ -362,6 +373,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
             // Admin Panel UI
             if (cid === 'panel:main')                          await handlePanelMain(interaction);
+            if (cid === 'panel:member')                        await handlePanelMember(interaction);
+            if (cid.startsWith('panel:member_add:'))           await handlePanelMemberAdd(interaction);
+            if (cid.startsWith('panel:member_rm:'))            await handlePanelMemberRm(interaction);
             if (cid === 'panel:channels')                      await handlePanelChannels(interaction);
             if (cid === 'panel:ch_create')                     await handlePanelChCreate(interaction);
             if (cid === 'panel:ch_delete')                     await handlePanelChDelete(interaction);
@@ -405,6 +419,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             // Panel user selects
             if (uid === 'panel:role_assign_user')      await handlePanelRoleAssignUser(interaction);
             if (uid === 'panel:role_revoke_user')      await handlePanelRoleRevokeUser(interaction);
+            if (uid === 'panel:member_user')           await handlePanelMemberUser(interaction);
         }
 
         // Role select menus
@@ -422,6 +437,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (rid.startsWith('panel:role_revoke_role:'))     await handlePanelRoleRevokeRole(interaction);
             if (rid === 'panel:role_channel_pick')             await handlePanelRoleChannelPick(interaction);
             if (rid.startsWith('panel:ch_perms_role:'))        await handlePanelChPermsRole(interaction);
+            if (rid.startsWith('panel:member_add_role:'))      await handlePanelMemberAddRole(interaction);
+            if (rid.startsWith('panel:member_rm_role:'))       await handlePanelMemberRmRole(interaction);
         }
 
         // Channel select menus

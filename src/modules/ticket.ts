@@ -60,6 +60,10 @@ export async function handleTicket(interaction: Interaction, serviceId: string):
 
     const closeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
+            .setCustomId(`pay:transfer:${channel.id}`)
+            .setLabel('💸 Sudah Transfer')
+            .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
             .setCustomId('close_ticket')
             .setLabel('Selesaikan & Tutup Tiket')
             .setEmoji('🔒')

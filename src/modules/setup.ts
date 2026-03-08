@@ -287,6 +287,7 @@ export async function handleSetupConfirm(interaction: ButtonInteraction): Promis
 
     await guild.channels.create({ name: '💼-seller-lounge',   parent: catSeller.id, permissionOverwrites: sellerCat });
     await guild.channels.create({ name: '🖥️-seller-terminal', parent: catSeller.id, permissionOverwrites: sellerCat });
+    await guild.channels.create({ name: '🔊-seller-voice', type: ChannelType.GuildVoice, parent: catSeller.id, permissionOverwrites: sellerCat } as any);
 
     // ── 7. Internal Staff ──────────────────────────────────────────────────────
     const catStaff = await guild.channels.create({ name: '🏦 INTERNAL STAFF', type: ChannelType.GuildCategory, permissionOverwrites: adminCat });
@@ -299,7 +300,7 @@ export async function handleSetupConfirm(interaction: ButtonInteraction): Promis
 
     await guild.channels.create({ name: '🖥️-admin-terminal',      parent: catStaff.id, permissionOverwrites: adminCat });
     await guild.channels.create({ name: '🖥️-owner-terminal',       parent: catStaff.id, permissionOverwrites: ownerCat });
-    await guild.channels.create({ name: '💰-payment-verification', parent: catStaff.id, permissionOverwrites: adminCat });
+    await guild.channels.create({ name: '💰-payment-verification', parent: catStaff.id, permissionOverwrites: sellerCat });
     await guild.channels.create({ name: '🔒-rekber-log',           parent: catStaff.id, permissionOverwrites: adminCat });
     await guild.channels.create({ name: '📋-rbac-log',             parent: catStaff.id, permissionOverwrites: adminCat });
 
@@ -335,6 +336,7 @@ export async function handleSetupConfirm(interaction: ButtonInteraction): Promis
     const catCommunity = await guild.channels.create({ name: '🌏 KOMUNITAS', type: ChannelType.GuildCategory });
     await guild.channels.create({ name: PROMO_CHANNEL_NAME, parent: catCommunity.id });
     await guild.channels.create({ name: '💬-general', parent: catCommunity.id });
+    await guild.channels.create({ name: '🔊-voice-chat', type: ChannelType.GuildVoice, parent: catCommunity.id } as any);
 
     console.log('✅ Server Setup Selesai!');
     await interaction.user.send('✅ **Server setup selesai!** Semua channel & role sudah dibuat ulang.').catch(() => {});

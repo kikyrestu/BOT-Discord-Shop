@@ -67,8 +67,7 @@ function mainEmbed(): EmbedBuilder {
         .setDescription(
             '**Panel manajemen server — hanya untuk Owner**\n\n' +
             '\u{1F4CB} **Channels** — Buat, hapus, rename, atur akses\n' +
-            '\u{1F465} **Roles** — Buat, hapus, assign ke user & channel\n' +
-            '\u2699\uFE0F **Config** — Pengaturan bot\n' +
+            '\u{1F465} **Roles** — Buat, hapus, assign ke user & channel\n' +            '\u{1F464} **Members** \u2014 Lihat & atur role member dengan cepat\n' +            '\u2699\uFE0F **Config** — Pengaturan bot\n' +
             '\u{1F6AB} **Blacklist** — Kelola daftar hitam buyer',
         )
         .setFooter({ text: 'Owner Only Panel' });
@@ -79,6 +78,7 @@ function mainRows(): ActionRowBuilder<ButtonBuilder>[] {
         new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder().setCustomId('panel:channels').setLabel('\u{1F4CB} Channels').setStyle(ButtonStyle.Primary),
             new ButtonBuilder().setCustomId('panel:roles').setLabel('\u{1F465} Roles').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('panel:member').setLabel('\u{1F464} Members').setStyle(ButtonStyle.Primary),
             new ButtonBuilder().setCustomId('panel:config').setLabel('\u2699\uFE0F Config').setStyle(ButtonStyle.Secondary),
             new ButtonBuilder().setCustomId('panel:blacklist').setLabel('\u{1F6AB} Blacklist').setStyle(ButtonStyle.Danger),
         ),
@@ -758,4 +758,154 @@ export async function handlePanelBlacklist(interaction: ButtonInteraction): Prom
             backRow('panel:main'),
         ],
     });
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// MEMBER SECTION — Quick role management per member
+// ════════════════════════════════════════════════════════════════════════════════
+
+export async function handlePanelMember(interaction: ButtonInteraction): Promise<void> {
+    if (!ownerOnly(interaction)) { await interaction.reply({ content: '\u274C', ephemeral: true }); return; }
+    await interaction.update({
+        embeds: [new EmbedBuilder().setTitle('\u{1F464} Member Role Manager').setColor('#00BBFF')
+            .setDescription('Pilih member yang ingin dikelola rolenya:\n\nKamu bisa lihat role saat ini lalu tambah atau hapus role dengan cepat.'),
+        ],
+        components: [
+            new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(
+                new UserSelectMenuBuilder().setCustomId('panel:member_user').setPlaceholder('Pilih member...'),
+            ),
+            backRow('panel:main'),
+        ],
+    });
+}
+
+export async function handlePanelMemberUser(interaction: UserSelectMenuInteraction): Promise<void> {
+    if (!interaction.guild) return;
+    if (!ownerOnly(interaction)) { await interaction.reply({ content: '\u274C', ephemeral: true }); return; }
+    const user = interaction.users.first();
+    if (!user) return;
+    const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+    if (!member) {
+        await interaction.update({ content: '\u26A0\uFE0F Member tidak ditemukan di server.', embeds: [], components: [backRow('panel:member', '\u2190 Pilih Ulang')] });
+        return;
+    }
+    const memberRoles = member.roles.cache
+        .filter(r => r.id !== interaction.guild!.id)
+        .sort((a, b) => b.position - a.position);
+    const rolesText = memberRoles.size > 0
+        ? memberRoles.map(r => `${r}`).join(', ')
+        : '*Tidak punya role*';
+    await interaction.update({
+        embeds: [
+            new EmbedBuilder().setTitle(`\u{1F464} ${member.displayName}`).setColor('#00BBFF')
+                .setThumbnail(user.displayAvatarURL())
+                .addFields(
+                    { name: 'Username', value: `${user}`, inline: true },
+                    { name: `Role (${memberRoles.size})`, value: rolesText, inline: false },
+                ),
+        ],
+        components: [
+            new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId(`panel:member_add:${user.id}`).setLabel('\u2795 Tambah Role').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`panel:member_rm:${user.id}`).setLabel('\u2796 Hapus Role').setStyle(ButtonStyle.Danger),
+            ),
+            backRow('panel:member', '\u2190 Member Lain'),
+        ],
+    });
+}
+
+export async function handlePanelMemberAdd(interaction: ButtonInteraction): Promise<void> {
+    if (!ownerOnly(interaction)) { await interaction.reply({ content: '\u274C', ephemeral: true }); return; }
+    const userId = interaction.customId.replace('panel:member_add:', '');
+    await interaction.update({
+        embeds: [new EmbedBuilder().setTitle('\u2795 Tambah Role ke Member').setColor('#00FF88')
+            .setDescription(`Member: <@${userId}>\n\nPilih role yang akan ditambahkan:`),
+        ],
+        components: [
+            new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+                new RoleSelectMenuBuilder().setCustomId(`panel:member_add_role:${userId}`).setPlaceholder('Pilih role...'),
+            ),
+            backRow('panel:member', '\u2190 Pilih Member Lagi'),
+        ],
+    });
+}
+
+export async function handlePanelMemberAddRole(interaction: RoleSelectMenuInteraction): Promise<void> {
+    if (!interaction.guild) return;
+    if (!ownerOnly(interaction)) { await interaction.reply({ content: '\u274C', ephemeral: true }); return; }
+    const userId = interaction.customId.replace('panel:member_add_role:', '');
+    const role   = interaction.roles.first();
+    if (!role) return;
+    try {
+        const member = await interaction.guild.members.fetch(userId);
+        await member.roles.add(role.id);
+        await interaction.update({
+            embeds: [new EmbedBuilder().setTitle('\u2705 Role Ditambahkan').setColor('#00FF88')
+                .addFields(
+                    { name: 'Member', value: `<@${userId}>`, inline: true },
+                    { name: 'Role',   value: `${role}`,       inline: true },
+                ),
+            ],
+            components: [
+                new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder().setCustomId(`panel:member_add:${userId}`).setLabel('\u2795 Tambah Role Lain').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId('panel:member').setLabel('\u{1F464} Member Lain').setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder().setCustomId('panel:main').setLabel('\u2190 Main Panel').setStyle(ButtonStyle.Secondary),
+                ),
+            ],
+        });
+    } catch (err) {
+        await interaction.update({ content: `\u274C Gagal: ${(err as Error).message}`, embeds: [], components: [backRow('panel:member', '\u2190 Kembali')] });
+    }
+}
+
+export async function handlePanelMemberRm(interaction: ButtonInteraction): Promise<void> {
+    if (!interaction.guild) return;
+    if (!ownerOnly(interaction)) { await interaction.reply({ content: '\u274C', ephemeral: true }); return; }
+    const userId = interaction.customId.replace('panel:member_rm:', '');
+    const member = await interaction.guild.members.fetch(userId).catch(() => null);
+    if (!member) {
+        await interaction.update({ content: '\u26A0\uFE0F Member tidak ditemukan.', embeds: [], components: [backRow('panel:member', '\u2190 Kembali')] });
+        return;
+    }
+    await interaction.update({
+        embeds: [new EmbedBuilder().setTitle('\u2796 Hapus Role dari Member').setColor('#FF6B35')
+            .setDescription(`Member: <@${userId}>\n\nPilih role yang akan dihapus:`),
+        ],
+        components: [
+            new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+                new RoleSelectMenuBuilder().setCustomId(`panel:member_rm_role:${userId}`).setPlaceholder('Pilih role yang akan dihapus...'),
+            ),
+            backRow('panel:member', '\u2190 Pilih Member Lagi'),
+        ],
+    });
+}
+
+export async function handlePanelMemberRmRole(interaction: RoleSelectMenuInteraction): Promise<void> {
+    if (!interaction.guild) return;
+    if (!ownerOnly(interaction)) { await interaction.reply({ content: '\u274C', ephemeral: true }); return; }
+    const userId = interaction.customId.replace('panel:member_rm_role:', '');
+    const role   = interaction.roles.first();
+    if (!role) return;
+    try {
+        const member = await interaction.guild.members.fetch(userId);
+        await member.roles.remove(role.id);
+        await interaction.update({
+            embeds: [new EmbedBuilder().setTitle('\u2705 Role Dihapus').setColor('#00FF88')
+                .addFields(
+                    { name: 'Member', value: `<@${userId}>`, inline: true },
+                    { name: 'Role',   value: `${role}`,       inline: true },
+                ),
+            ],
+            components: [
+                new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder().setCustomId(`panel:member_rm:${userId}`).setLabel('\u2796 Hapus Role Lain').setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder().setCustomId('panel:member').setLabel('\u{1F464} Member Lain').setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder().setCustomId('panel:main').setLabel('\u2190 Main Panel').setStyle(ButtonStyle.Secondary),
+                ),
+            ],
+        });
+    } catch (err) {
+        await interaction.update({ content: `\u274C Gagal: ${(err as Error).message}`, embeds: [], components: [backRow('panel:member', '\u2190 Kembali')] });
+    }
 }
