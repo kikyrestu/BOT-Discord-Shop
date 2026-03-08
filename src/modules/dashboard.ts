@@ -11,6 +11,13 @@ function isOwnerOrAdmin(member: GuildMember): boolean {
         member.roles.cache.some(r => [ROLE_NAMES.OWNER, ROLE_NAMES.ADMIN].includes(r.name as any));
 }
 
+function hasSeller(member: GuildMember): boolean {
+    return member.id === OWNER_ID ||
+        member.roles.cache.some(r =>
+            [ROLE_NAMES.OWNER, ROLE_NAMES.ADMIN, ROLE_NAMES.SELLER].includes(r.name as any)
+        );
+}
+
 export async function handleDashboardCommand(interaction: ChatInputCommandInteraction): Promise<void> {
     if (!interaction.guild) return;
 
@@ -111,6 +118,95 @@ export async function handleDashboardCommand(interaction: ChatInputCommandIntera
             },
         )
         .setFooter({ text: `${interaction.guild.name} • Data real-time` })
+        .setTimestamp();
+
+    await interaction.editReply({ embeds: [embed] });
+}
+
+// ── Seller Dashboard ──────────────────────────────────────────────────────────
+export async function handleSellerDashCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+    if (!interaction.guild) return;
+
+    const member = interaction.member as GuildMember;
+    if (!hasSeller(member)) {
+        await interaction.reply({ content: '❌ Hanya Seller, Admin, atau Owner yang bisa akses seller dashboard.', ephemeral: true });
+        return;
+    }
+
+    await interaction.deferReply({ ephemeral: true });
+
+    const [activeStats, serviceStats, reviewStats, paymentRow] = await Promise.all([
+        pool.query(`
+            SELECT
+                COUNT(*) FILTER (WHERE status IN ('open','in_progress','revision')) AS total_active,
+                COUNT(*) FILTER (WHERE status = 'open')        AS open,
+                COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress,
+                COUNT(*) FILTER (WHERE status = 'revision')    AS revision,
+                COUNT(*) FILTER (WHERE status = 'done'
+                    AND updated_at >= NOW() - INTERVAL '7 days')    AS done_week
+            FROM orders
+        `),
+        pool.query(`
+            SELECT
+                service_id,
+                COUNT(*)                                                           AS total_orders,
+                COUNT(*) FILTER (WHERE status = 'done')                          AS completed,
+                COUNT(*) FILTER (WHERE status IN ('open','in_progress','revision')) AS active
+            FROM orders
+            GROUP BY service_id
+            ORDER BY total_orders DESC
+            LIMIT 10
+        `),
+        pool.query(`
+            SELECT service_id, ROUND(AVG(rating), 1) AS avg_rating, COUNT(*) AS total_reviews
+            FROM reviews
+            GROUP BY service_id
+        `),
+        pool.query(`SELECT methods FROM payment_methods WHERE seller_id = $1`, [interaction.user.id]),
+    ]);
+
+    const ao = activeStats.rows[0];
+    const ratingMap = new Map(reviewStats.rows.map((r: any) => [r.service_id, r]));
+
+    const serviceText = serviceStats.rows.length > 0
+        ? serviceStats.rows.map((r: any) => {
+            const rv = ratingMap.get(r.service_id) as any;
+            const star = rv ? `⭐ ${rv.avg_rating} (${rv.total_reviews} ulasan)` : '–';
+            return `**${r.service_id.toUpperCase()}** · ${r.total_orders} order · ✅ ${r.completed} selesai · 🔄 ${r.active} aktif · ${star}`;
+          }).join('\n')
+        : 'Belum ada order masuk';
+
+    const myMethods: any[] = paymentRow.rows[0]?.methods ?? [];
+    const paymentText = myMethods.length > 0
+        ? myMethods.map((m: any) =>
+            `${m.emoji ?? '💳'} **${m.name}** — ${m.account_name}  \`${m.account_number}\``
+          ).join('\n')
+        : '⚠️ Belum setup metode pembayaran — gunakan `/payment add`';
+
+    const embed = new EmbedBuilder()
+        .setTitle('🏪 Dashboard Seller')
+        .setColor('#FFCC00')
+        .setDescription(`Halo ${interaction.user}! Berikut rekap status toko kamu saat ini.`)
+        .addFields(
+            {
+                name: '📦 Order Aktif',
+                value:
+                    `🟡 Menunggu: **${ao.open}**  ·  🔵 Diproses: **${ao.in_progress}**  ·  🟠 Revisi: **${ao.revision}**\n` +
+                    `✅ Selesai 7 hari: **${ao.done_week}**  ·  Total aktif: **${ao.total_active}**`,
+                inline: false,
+            },
+            {
+                name: '📊 Statistik per Layanan',
+                value: serviceText,
+                inline: false,
+            },
+            {
+                name: '💳 Metode Pembayaran Kamu',
+                value: paymentText,
+                inline: false,
+            },
+        )
+        .setFooter({ text: 'Seller Dashboard • Data real-time' })
         .setTimestamp();
 
     await interaction.editReply({ embeds: [embed] });

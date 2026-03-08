@@ -1,4 +1,4 @@
-﻿import { Interaction, ChannelType, PermissionFlagsBits, ButtonInteraction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+﻿import { Interaction, ChannelType, PermissionFlagsBits, ButtonInteraction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel } from 'discord.js';
 import { OWNER_ID, ROLE_NAMES } from '../config';
 import { setProjectCatId } from '../state';
 import { getAllServices } from '../lib/serviceStore';
@@ -7,7 +7,149 @@ import { PROMO_CHANNEL_NAME } from './promo';
 import { PAYMENT_CHANNEL_NAME } from './payment';
 import { createStatChannels } from './stats';
 
-// Step 1: /setup → tampilkan konfirmasi dulu, belum ngapa-ngapain
+// ── Panduan embed builders (shared between setup & /updpanduan) ───────────────
+
+export function buildSellerPanduanEmbed(): EmbedBuilder {
+    return new EmbedBuilder()
+        .setTitle('📋 Panduan Seller — Fitur Lengkap')
+        .setColor('#FFCC00')
+        .setDescription(
+            '🔴 = Owner only  ·  🟠 = Admin+Owner  ·  🟡 = Seller+Admin+Owner  ·  🌐 = Semua\n\n' +
+
+            '**💼 MANAJEMEN LAYANANMU**\n' +
+            '`/payment add` — Tambah metode pembayaran 🟡\n' +
+            '`/payment remove` — Hapus metode pembayaran 🟡\n' +
+            '`/payment list` — Lihat daftar payment method 🟡\n' +
+            '`/payment refresh` — Perbarui card pembayaran di channel 🟡\n\n' +
+
+            '**📦 ORDER & TRANSAKSI**\n' +
+            '`/orderupdate` — Update status order (open/progress/done/dll) 🟡\n' +
+            '`/orderstatus` — Cek status order tertentu 🌐\n' +
+            '`/rekber` — Buka sesi rekening bersama / escrow 🟡\n\n' +
+
+            '**📊 DASHBOARD & STATISTIK**\n' +
+            '`/sellerdash` — Dashboard order aktif, statistik per layanan & payment kamu 🟡\n' +
+            '`/reviews` — Lihat rating & review semua layanan 🌐\n\n' +
+
+            '**🛍️ PRODUK (dikelola Owner)**\n' +
+            '`/product list` — Lihat semua produk & ID-nya 🔴\n' +
+            '`/product edit` — Edit detail layanan 🔴\n' +
+            '`/refreshcards` — Refresh semua card produk 🔴\n\n' +
+
+            '**❓ BANTUAN**\n' +
+            '`/shelp` — Panduan singkat command seller 🟡\n' +
+            '`/help` — Panduan umum untuk semua member 🌐'
+        )
+        .setFooter({ text: 'Channel ini read-only • Ketik command di 🖥️-seller-terminal' });
+}
+
+export function buildAdminPanduanEmbed(): EmbedBuilder {
+    return new EmbedBuilder()
+        .setTitle('📋 Panduan Admin — Fitur Lengkap')
+        .setColor('#FF6600')
+        .setDescription(
+            '🔴 = Owner only  ·  🟠 = Admin+Owner  ·  🟡 = Seller+Admin+Owner  ·  🌐 = Semua\n\n' +
+
+            '**🛡️ MODERASI & KEAMANAN**\n' +
+            '`/blacklist` — Kelola daftar hitam buyer (tambah/hapus/cek/list) 🟠\n' +
+            '`/rbac` — Kelola role & akses channel via panel interaktif 🟠\n\n' +
+
+            '**📊 MONITORING & STATISTIK**\n' +
+            '`/dashboard` — Dashboard lengkap: order, customer, review, blacklist 🟠\n' +
+            '`/sellerdash` — Dashboard statistik per layanan & order aktif 🟠\n' +
+            '`/reviews` — Lihat rata-rata rating semua layanan 🌐\n\n' +
+
+            '**📦 ORDER MANAGEMENT**\n' +
+            '`/orderupdate` — Update status order & kirim notif ke buyer 🟡\n' +
+            '`/orderstatus` — Cek status order tertentu 🌐\n\n' +
+
+            '**⚙️ KONFIGURASI**\n' +
+            '`/config` — Pengaturan bot (promo cooldown, dll) 🟠\n' +
+            '`/updpanduan` — Update semua channel panduan ke versi terbaru 🔴\n\n' +
+
+            '**❓ BANTUAN**\n' +
+            '`/devhelp` — Panduan lengkap command admin & owner 🟠\n' +
+            '`/help` — Panduan umum 🌐'
+        )
+        .setFooter({ text: 'Channel ini read-only • Ketik command di 🖥️-admin-terminal' });
+}
+
+export function buildOwnerPanduanEmbed(): EmbedBuilder {
+    return new EmbedBuilder()
+        .setTitle('📋 Panduan Owner — Semua Akses')
+        .setColor('#FF0000')
+        .setDescription(
+            '🔴 = Owner only  ·  🟠 = Admin+Owner  ·  🟡 = Seller+Admin+Owner  ·  🌐 = Semua\n\n' +
+
+            '**🔴 EKSKLUSIF OWNER**\n' +
+            '`/setup` — Setup ulang seluruh server dari nol (⚠️ menghapus semua channel & role)\n' +
+            '`/panel` — Panel server: buat/hapus/rename channel, kelola role, config\n' +
+            '`/refreshcards` — Refresh semua product cards di marketplace\n' +
+            '`/product list` — Lihat semua produk & ID\n' +
+            '`/product edit` — Edit detail produk/layanan\n' +
+            '`/updpanduan` — Update semua channel panduan ke versi terbaru\n\n' +
+
+            '**🟠 ADMIN + OWNER**\n' +
+            '`/dashboard` — Dashboard lengkap marketplace\n' +
+            '`/sellerdash` — Dashboard statistik per layanan\n' +
+            '`/rbac` — Kelola role & akses channel\n' +
+            '`/blacklist` — Kelola blacklist buyer\n' +
+            '`/config` — Pengaturan bot\n' +
+            '`/orderupdate` — Update status order\n' +
+            '`/devhelp` — Panduan command staff\n\n' +
+
+            '**🟡 SELLER + ADMIN + OWNER**\n' +
+            '`/payment add/remove/list/refresh` — Kelola metode pembayaran\n' +
+            '`/rekber` — Buka sesi rekening bersama\n' +
+            '`/sellerdash` — Dashboard toko\n\n' +
+
+            '**🌐 SEMUA MEMBER**\n' +
+            '`/orderstatus` — Cek status order\n' +
+            '`/reviews` — Lihat rating layanan\n' +
+            '`/myorders` — Riwayat & loyalty poin\n' +
+            '`/help` — Panduan umum'
+        )
+        .setFooter({ text: 'Channel ini read-only • Owner only • Ketik command di 🖥️-owner-terminal' });
+}
+
+// ── /updpanduan command ───────────────────────────────────────────────────────
+export async function handleUpdPanduan(interaction: Interaction): Promise<void> {
+    if (!interaction.isChatInputCommand() || !interaction.guild) return;
+    if (interaction.user.id !== OWNER_ID) {
+        await interaction.reply({ content: '❌ Hanya Owner yang bisa update panduan.', ephemeral: true });
+        return;
+    }
+    await interaction.deferReply({ ephemeral: true });
+
+    const guild = interaction.guild;
+    const targets: Array<{ name: string; builder: () => EmbedBuilder }> = [
+        { name: '📋-panduan-seller', builder: buildSellerPanduanEmbed },
+        { name: '📋-panduan-admin',  builder: buildAdminPanduanEmbed  },
+        { name: '📋-panduan-owner',  builder: buildOwnerPanduanEmbed  },
+    ];
+
+    const results: string[] = [];
+    for (const t of targets) {
+        const chan = guild.channels.cache.find(c => c.name === t.name) as TextChannel | undefined;
+        if (!chan || !chan.isTextBased()) {
+            results.push(`❌ \`${t.name}\` tidak ditemukan`);
+            continue;
+        }
+        // Hapus pesan lama bot di channel itu lalu kirim ulang
+        const messages = await chan.messages.fetch({ limit: 10 });
+        for (const msg of messages.values()) {
+            if (msg.author.bot) await msg.delete().catch(() => {});
+        }
+        await chan.send({ embeds: [t.builder()] });
+        results.push(`✅ \`${t.name}\` diperbarui`);
+    }
+
+    await interaction.editReply({
+        content: '**Update Panduan Selesai:**\n' + results.join('\n'),
+    });
+}
+
+
 export async function handleSetupRequest(interaction: Interaction): Promise<void> {
     if (!interaction.isChatInputCommand() || !interaction.guild) return;
     if (interaction.user.id !== OWNER_ID) {
@@ -141,24 +283,7 @@ export async function handleSetupConfirm(interaction: ButtonInteraction): Promis
     const catSeller = await guild.channels.create({ name: '👔 SELLER ZONE', type: ChannelType.GuildCategory, permissionOverwrites: sellerCat });
 
     const guideSellerChan = await guild.channels.create({ name: '📋-panduan-seller', parent: catSeller.id, permissionOverwrites: sellerRO });
-    await guideSellerChan.send({ embeds: [new EmbedBuilder()
-        .setTitle('📋 Panduan Seller')
-        .setColor('#FFCC00')
-        .setDescription(
-            'Selamat datang di **Seller Zone**! Berikut command yang tersedia:\n\n' +
-            '`/shelp` — Lihat semua command seller\n' +
-            '`/product add` — Tambah layanan baru\n' +
-            '`/product edit` — Edit layanan\n' +
-            '`/product delete` — Hapus layanan\n' +
-            '`/payment add` — Tambah metode pembayaran\n' +
-            '`/payment remove` — Hapus metode pembayaran\n' +
-            '`/payment refresh` — Perbarui card pembayaran\n' +
-            '`/orderupdate` — Update status order\n' +
-            '`/rekber` — Buka sesi rekber/escrow\n\n' +
-            '💡 Ketik semua command di **🖥️-seller-terminal**'
-        )
-        .setFooter({ text: 'Channel ini read-only' })
-    ]});
+    await guideSellerChan.send({ embeds: [buildSellerPanduanEmbed()] });
 
     await guild.channels.create({ name: '💼-seller-lounge',   parent: catSeller.id, permissionOverwrites: sellerCat });
     await guild.channels.create({ name: '🖥️-seller-terminal', parent: catSeller.id, permissionOverwrites: sellerCat });
@@ -167,40 +292,10 @@ export async function handleSetupConfirm(interaction: ButtonInteraction): Promis
     const catStaff = await guild.channels.create({ name: '🏦 INTERNAL STAFF', type: ChannelType.GuildCategory, permissionOverwrites: adminCat });
 
     const guideAdminChan = await guild.channels.create({ name: '📋-panduan-admin', parent: catStaff.id, permissionOverwrites: adminRO });
-    await guideAdminChan.send({ embeds: [new EmbedBuilder()
-        .setTitle('📋 Panduan Admin')
-        .setColor('#FF6600')
-        .setDescription(
-            'Berikut command untuk **Admin**:\n\n' +
-            '`/devhelp` — Lihat semua command admin\n' +
-            '`/rbac` — Kelola role & akses channel\n' +
-            '`/blacklist` — Kelola daftar hitam buyer\n' +
-            '`/config` — Pengaturan bot\n' +
-            '`/dashboard` — Dashboard transaksi\n' +
-            '`/stats` — Statistik server\n' +
-            '`/orderupdate` — Update status order\n\n' +
-            '💡 Ketik semua command di **🖥️-admin-terminal**'
-        )
-        .setFooter({ text: 'Channel ini read-only' })
-    ]});
+    await guideAdminChan.send({ embeds: [buildAdminPanduanEmbed()] });
 
     const guideOwnerChan = await guild.channels.create({ name: '📋-panduan-owner', parent: catStaff.id, permissionOverwrites: ownerRO });
-    await guideOwnerChan.send({ embeds: [new EmbedBuilder()
-        .setTitle('📋 Panduan Owner')
-        .setColor('#FF0000')
-        .setDescription(
-            'Berikut command eksklusif **Owner**:\n\n' +
-            '`/panel` — Panel admin server (channel, role, config)\n' +
-            '`/setup` — Setup ulang seluruh server\n' +
-            '`/refresh` — Refresh semua product cards\n' +
-            '`/config` — Pengaturan bot\n' +
-            '`/rbac` — Kelola role & akses channel\n' +
-            '`/blacklist` — Kelola daftar hitam\n' +
-            '`/devhelp` — Semua command owner\n\n' +
-            '💡 Ketik semua command di **🖥️-owner-terminal**'
-        )
-        .setFooter({ text: 'Channel ini read-only — Owner only' })
-    ]});
+    await guideOwnerChan.send({ embeds: [buildOwnerPanduanEmbed()] });
 
     await guild.channels.create({ name: '🖥️-admin-terminal',      parent: catStaff.id, permissionOverwrites: adminCat });
     await guild.channels.create({ name: '🖥️-owner-terminal',       parent: catStaff.id, permissionOverwrites: ownerCat });
@@ -238,22 +333,8 @@ export async function handleSetupConfirm(interaction: ButtonInteraction): Promis
 
     // ── 10. Komunitas ──────────────────────────────────────────────────────────
     const catCommunity = await guild.channels.create({ name: '🌏 KOMUNITAS', type: ChannelType.GuildCategory });
-    const promoChan = await guild.channels.create({ name: PROMO_CHANNEL_NAME, parent: catCommunity.id });
+    await guild.channels.create({ name: PROMO_CHANNEL_NAME, parent: catCommunity.id });
     await guild.channels.create({ name: '💬-general', parent: catCommunity.id });
-
-    await promoChan.send({ embeds: [new EmbedBuilder()
-        .setTitle('🎮 Channel Share Server SA:MP')
-        .setColor('#00fbff')
-        .setDescription(
-            'Share server SA:MP kamu di sini!\n\n' +
-            '**⚠️ Aturan:**\n' +
-            '• Khusus untuk server SA:MP\n' +
-            '• Cooldown **6 jam** per akun\n' +
-            '• Wajib menggunakan format di bawah\n\n' +
-            '**📝 Format Wajib:**\n```\nNama Server: ...\nIP: ...\nDeskripsi: ...\n```'
-        )
-        .setFooter({ text: 'Post yang tidak sesuai format akan otomatis dihapus' })
-    ]});
 
     console.log('✅ Server Setup Selesai!');
     await interaction.user.send('✅ **Server setup selesai!** Semua channel & role sudah dibuat ulang.').catch(() => {});

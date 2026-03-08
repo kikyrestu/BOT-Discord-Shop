@@ -6,7 +6,7 @@ import {
 import { TOKEN, OWNER_ID } from './src/config';
 import { initDB } from './src/lib/db';
 import { loadProjectCatId } from './src/state';
-import { handleSetupRequest, handleSetupConfirm } from './src/modules/setup';
+import { handleSetupRequest, handleSetupConfirm, handleUpdPanduan } from './src/modules/setup';
 import { handleTicket, handleCloseTicket } from './src/modules/ticket';
 import { handleRefreshCards } from './src/modules/refresh';
 import { handleProductCommand, handleProductModal, handleProductAutocomplete } from './src/modules/products';
@@ -25,7 +25,7 @@ import {
     handleBlacklistRemoveUser, handleBlacklistCheck, handleBlacklistCheckUser,
     handleBlacklistList,
 } from './src/modules/blacklist';
-import { handleDashboardCommand } from './src/modules/dashboard';
+import { handleDashboardCommand, handleSellerDashCommand } from './src/modules/dashboard';
 import {
     handleConfigCommand, handleConfigSetSelect, handleConfigResetSelect,
     handleConfigSetKeySelect, handleConfigResetKeySelect,
@@ -147,6 +147,12 @@ client.once(Events.ClientReady, async (c) => {
             .setName('dashboard')
             .setDescription('Lihat statistik & rekap marketplace (Admin only)'),
         new SlashCommandBuilder()
+            .setName('sellerdash')
+            .setDescription('Dashboard statistik & order aktif untuk Seller'),
+        new SlashCommandBuilder()
+            .setName('updpanduan')
+            .setDescription('Update semua channel panduan dengan fitur terbaru (Owner only)'),
+        new SlashCommandBuilder()
             .setName('refreshcards')
             .setDescription('Refresh semua product cards (Owner only)'),
         new SlashCommandBuilder()
@@ -207,6 +213,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (interaction.commandName === 'orderupdate')  await handleOrderUpdateCommand(interaction);
             if (interaction.commandName === 'blacklist')    await handleBlacklistCommand(interaction);
             if (interaction.commandName === 'dashboard')    await handleDashboardCommand(interaction);
+            if (interaction.commandName === 'sellerdash')   await handleSellerDashCommand(interaction);
+            if (interaction.commandName === 'updpanduan')   await handleUpdPanduan(interaction);
             if (interaction.commandName === 'config')        await handleConfigCommand(interaction);
             if (interaction.commandName === 'rbac')           await handleRbacCommand(interaction);
             if (interaction.commandName === 'help')           await handleHelp(interaction);

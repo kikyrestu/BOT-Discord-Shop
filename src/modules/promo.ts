@@ -5,32 +5,12 @@ import { getBotConfig } from '../lib/botConfig';
 // Nama channel yang diizinkan untuk share server
 export const PROMO_CHANNEL_NAME = '🎮-share-server-samp';
 
-// Format wajib yang harus ada di pesan promosi
-const REQUIRED_FIELDS = [
-    { key: 'nama server',  label: 'Nama Server' },
-    { key: 'ip',           label: 'IP:Port'      },
-    { key: 'deskripsi',    label: 'Deskripsi'    },
-];
-
 export async function handlePromoMessage(message: Message): Promise<void> {
     if (message.author.bot) return;
     if (!message.guild)     return;
     if (message.channel.type !== 0) return; // hanya TextChannel (type 0)
     if (!('name' in message.channel)) return;
     if (message.channel.name !== PROMO_CHANNEL_NAME) return;
-
-    const content = message.content.toLowerCase();
-
-    // Cek format wajib
-    const missingFields = REQUIRED_FIELDS.filter(f => !content.includes(f.key));
-    if (missingFields.length > 0) {
-        await message.delete().catch(() => {});
-        const warn = await message.channel.send({
-            content: `${message.author} ❌ Postingan dihapus! Format tidak lengkap.\n\nHarus ada: **${missingFields.map(f => f.label).join(', ')}**\n\n**Format wajib:**\n\`\`\`\nNama Server: ...\nIP: ...\nDeskripsi: ...\n\`\`\``,
-        });
-        setTimeout(() => warn.delete().catch(() => {}), 15000);
-        return;
-    }
 
     // Cek cooldown dari DB
     const cfg = await getBotConfig();
