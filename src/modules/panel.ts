@@ -22,7 +22,9 @@ import {
     GuildMember,
     PermissionFlagsBits,
 } from 'discord.js';
-import { OWNER_ID } from '../config';
+import { OWNER_ID, ROLE_NAMES } from '../config';
+import { pool } from '../lib/db';
+import { getAllServices } from '../lib/serviceStore';
 
 // ─── Permission Presets ───────────────────────────────────────────────────────
 
@@ -67,7 +69,10 @@ function mainEmbed(): EmbedBuilder {
         .setDescription(
             '**Panel manajemen server — hanya untuk Owner**\n\n' +
             '\u{1F4CB} **Channels** — Buat, hapus, rename, atur akses\n' +
-            '\u{1F465} **Roles** — Buat, hapus, assign ke user & channel\n' +            '\u{1F464} **Members** \u2014 Lihat & atur role member dengan cepat\n' +            '\u2699\uFE0F **Config** — Pengaturan bot\n' +
+            '\u{1F465} **Roles** \u2014 Buat, hapus, assign ke user & channel\n' +
+            '\u{1F464} **Members** \u2014 Lihat & atur role member dengan cepat\n' +
+            '\u{1F4E6} **Products** \u2014 Assign seller ke lapak & switch kepemilikan\n' +
+            '\u2699\uFE0F **Config** \u2014 Pengaturan bot\n' +
             '\u{1F6AB} **Blacklist** — Kelola daftar hitam buyer',
         )
         .setFooter({ text: 'Owner Only Panel' });
@@ -79,6 +84,9 @@ function mainRows(): ActionRowBuilder<ButtonBuilder>[] {
             new ButtonBuilder().setCustomId('panel:channels').setLabel('\u{1F4CB} Channels').setStyle(ButtonStyle.Primary),
             new ButtonBuilder().setCustomId('panel:roles').setLabel('\u{1F465} Roles').setStyle(ButtonStyle.Success),
             new ButtonBuilder().setCustomId('panel:member').setLabel('\u{1F464} Members').setStyle(ButtonStyle.Primary),
+        ),
+        new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setCustomId('panel:products').setLabel('\u{1F4E6} Products').setStyle(ButtonStyle.Success),
             new ButtonBuilder().setCustomId('panel:config').setLabel('\u2699\uFE0F Config').setStyle(ButtonStyle.Secondary),
             new ButtonBuilder().setCustomId('panel:blacklist').setLabel('\u{1F6AB} Blacklist').setStyle(ButtonStyle.Danger),
         ),
@@ -908,4 +916,195 @@ export async function handlePanelMemberRmRole(interaction: RoleSelectMenuInterac
     } catch (err) {
         await interaction.update({ content: `\u274C Gagal: ${(err as Error).message}`, embeds: [], components: [backRow('panel:member', '\u2190 Kembali')] });
     }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// PRODUCTS SECTION — Assign seller ke marketplace channel
+// ════════════════════════════════════════════════════════════════════════════════
+
+export async function handlePanelProducts(interaction: ButtonInteraction): Promise<void> {
+    if (!ownerOnly(interaction)) { await interaction.reply({ content: '\u274C', ephemeral: true }); return; }
+
+    const services = await getAllServices();
+    if (services.length === 0) {
+        await interaction.update({
+            embeds: [new EmbedBuilder().setTitle('\u{1F4E6} Products').setColor('#FF6600').setDescription('\u26A0\uFE0F Belum ada produk di database.')],
+            components: [backRow('panel:main')],
+        });
+        return;
+    }
+
+    const options = services.map(s => ({
+        label:       `${s.emoji} ${s.title}`.slice(0, 100),
+        value:       s.id,
+        description: s.seller_id ? `Seller: ID ${s.seller_id.slice(0, 18)}` : 'Belum ada seller',
+    }));
+
+    await interaction.update({
+        embeds: [
+            new EmbedBuilder().setTitle('\u{1F4E6} Products Manager').setColor('#5865F2')
+                .setDescription('Pilih produk untuk assign atau ganti seller-nya:')
+                .addFields(services.map(s => ({
+                    name:   `${s.emoji} ${s.title}`,
+                    value:  s.seller_id ? `\u{1F464} <@${s.seller_id}>` : '\u26A0\uFE0F *Belum diassign*',
+                    inline: true,
+                }))),
+        ],
+        components: [
+            new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId('panel:product_pick')
+                    .setPlaceholder('Pilih produk...')
+                    .addOptions(options),
+            ),
+            backRow('panel:main'),
+        ],
+    });
+}
+
+export async function handlePanelProductPick(interaction: StringSelectMenuInteraction): Promise<void> {
+    if (!ownerOnly(interaction)) { await interaction.reply({ content: '\u274C', ephemeral: true }); return; }
+
+    const serviceId = interaction.values[0];
+    const services  = await getAllServices();
+    const service   = services.find(s => s.id === serviceId);
+    if (!service) {
+        await interaction.update({ content: '\u26A0\uFE0F Produk tidak ditemukan.', embeds: [], components: [backRow('panel:products', '\u2190 Products')] });
+        return;
+    }
+
+    const sellerText = service.seller_id ? `\u{1F464} <@${service.seller_id}>` : '\u26A0\uFE0F *Belum ada seller*';
+
+    await interaction.update({
+        embeds: [
+            new EmbedBuilder().setTitle(`${service.emoji} ${service.title}`).setColor(service.color as any)
+                .addFields(
+                    { name: '\u{1F4CB} Channel', value: `\`${service.name}\``,  inline: true },
+                    { name: '\u{1F464} Seller',  value: sellerText,              inline: true },
+                    { name: '\u{1F4B0} Harga',   value: service.price || '-',    inline: true },
+                )
+                .setDescription('Klik tombol di bawah untuk assign atau ganti seller produk ini.'),
+        ],
+        components: [
+            new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`panel:product_assign:${serviceId}`)
+                    .setLabel(service.seller_id ? '\u{1F504} Ganti Seller' : '\u{1F464} Assign Seller')
+                    .setStyle(ButtonStyle.Primary),
+                ...(service.seller_id ? [
+                    new ButtonBuilder()
+                        .setCustomId(`panel:product_unassign:${serviceId}`)
+                        .setLabel('\u274C Hapus Seller')
+                        .setStyle(ButtonStyle.Danger),
+                ] : []),
+            ),
+            backRow('panel:products', '\u2190 Products'),
+        ],
+    });
+}
+
+export async function handlePanelProductAssign(interaction: ButtonInteraction): Promise<void> {
+    if (!ownerOnly(interaction)) { await interaction.reply({ content: '\u274C', ephemeral: true }); return; }
+
+    const serviceId = interaction.customId.replace('panel:product_assign:', '');
+    await interaction.update({
+        embeds: [new EmbedBuilder().setTitle('\u{1F464} Assign Seller').setColor('#5865F2')
+            .setDescription(`Pilih seller yang akan diassign ke produk \`${serviceId}\`:`)],
+        components: [
+            new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(
+                new UserSelectMenuBuilder()
+                    .setCustomId(`panel:product_assign_user:${serviceId}`)
+                    .setPlaceholder('Pilih seller...'),
+            ),
+            backRow(`panel:products`, '\u2190 Products'),
+        ],
+    });
+}
+
+export async function handlePanelProductAssignUser(interaction: UserSelectMenuInteraction): Promise<void> {
+    if (!interaction.guild) return;
+    if (!ownerOnly(interaction)) { await interaction.reply({ content: '\u274C', ephemeral: true }); return; }
+
+    const serviceId  = interaction.customId.replace('panel:product_assign_user:', '');
+    const newSeller  = interaction.users.first();
+    if (!newSeller) return;
+
+    const services   = await getAllServices();
+    const service    = services.find(s => s.id === serviceId);
+    if (!service) {
+        await interaction.update({ content: '\u26A0\uFE0F Produk tidak ditemukan.', embeds: [], components: [backRow('panel:products', '\u2190 Products')] });
+        return;
+    }
+
+    const { updateServiceSeller } = await import('../lib/serviceStore');
+    await updateServiceSeller(serviceId, newSeller.id);
+
+    // Update marketplace channel permissions
+    const guild = interaction.guild;
+    const chan   = guild.channels.cache.find(c => c.name === service.name && c.isTextBased()) as GuildChannel | undefined;
+    if (chan) {
+        // Remove old seller's allow overwrite if any
+        if (service.seller_id && service.seller_id !== newSeller.id) {
+            await chan.permissionOverwrites.delete(service.seller_id).catch(() => {});
+        }
+        // Find Seller role
+        const sellerRole = guild.roles.cache.find(r => r.name === ROLE_NAMES.SELLER);
+        if (sellerRole) {
+            await chan.permissionOverwrites.edit(sellerRole.id, { ViewChannel: false }).catch(() => {});
+        }
+        // Allow new seller
+        await chan.permissionOverwrites.edit(newSeller.id, { ViewChannel: true }).catch(() => {});
+    }
+
+    await interaction.update({
+        embeds: [
+            new EmbedBuilder().setTitle('\u2705 Seller Diassign').setColor('#00FF88')
+                .addFields(
+                    { name: '\u{1F4E6} Produk',  value: `${service.emoji} ${service.title}`, inline: true },
+                    { name: '\u{1F464} Seller',  value: `${newSeller}`, inline: true },
+                    { name: '\u{1F4CB} Channel', value: chan ? `<#${chan.id}>` : `\`${service.name}\` (belum ada channel)`, inline: true },
+                )
+                .setDescription(chan ? '\u{1F510} Permissions channel sudah diperbarui.' : '\u26A0\uFE0F Channel tidak ditemukan — jalankan `/setup` untuk membuat channel.'),
+        ],
+        components: [
+            new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId('panel:products').setLabel('\u{1F4E6} Lihat Semua Products').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('panel:main').setLabel('\u2190 Main Panel').setStyle(ButtonStyle.Secondary),
+            ),
+        ],
+    });
+}
+
+export async function handlePanelProductUnassign(interaction: ButtonInteraction): Promise<void> {
+    if (!interaction.guild) return;
+    if (!ownerOnly(interaction)) { await interaction.reply({ content: '\u274C', ephemeral: true }); return; }
+
+    const serviceId = interaction.customId.replace('panel:product_unassign:', '');
+    const services  = await getAllServices();
+    const service   = services.find(s => s.id === serviceId);
+    if (!service || !service.seller_id) {
+        await interaction.update({ content: '\u26A0\uFE0F Produk atau seller tidak ditemukan.', embeds: [], components: [backRow('panel:products', '\u2190 Products')] });
+        return;
+    }
+
+    const oldSellerId = service.seller_id;
+    const { updateServiceSeller } = await import('../lib/serviceStore');
+    await updateServiceSeller(serviceId, null);
+
+    // Remove seller's ViewChannel overwrite from channel
+    const chan = interaction.guild.channels.cache.find(c => c.name === service.name && c.isTextBased()) as GuildChannel | undefined;
+    if (chan) {
+        await chan.permissionOverwrites.delete(oldSellerId).catch(() => {});
+    }
+
+    await interaction.update({
+        embeds: [
+            new EmbedBuilder().setTitle('\u2705 Seller Dihapus dari Produk').setColor('#FF6600')
+                .addFields(
+                    { name: '\u{1F4E6} Produk', value: `${service.emoji} ${service.title}`, inline: true },
+                    { name: 'Seller Lama', value: `<@${oldSellerId}>`, inline: true },
+                ),
+        ],
+        components: [backRow('panel:products', '\u2190 Products')],
+    });
 }

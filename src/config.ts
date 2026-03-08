@@ -15,6 +15,7 @@ export interface Service {
     price:     string;
     eta:       string;
     thumbnail: string; // URL gambar/banner, kosongkan '' kalau belum ada
+    seller_id?: string | null;
 }
 
 // Data default — hanya dipakai untuk seed pertama kali data/services.json

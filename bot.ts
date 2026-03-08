@@ -61,7 +61,11 @@ import {
     handlePanelMember, handlePanelMemberUser,
     handlePanelMemberAdd, handlePanelMemberAddRole,
     handlePanelMemberRm, handlePanelMemberRmRole,
+    handlePanelProducts, handlePanelProductPick,
+    handlePanelProductAssign, handlePanelProductAssignUser, handlePanelProductUnassign,
 } from './src/modules/panel';
+import { handleMemberJoin } from './src/modules/welcome';
+import { handleSpGive, handleSpGiveModal, handleSpConfirmDenda, handleSpList, checkExpiredSP } from './src/modules/sp';
 import { updateMemberStat } from './src/modules/stats';
 import { pool } from './src/lib/db';
 
@@ -86,6 +90,10 @@ client.once(Events.ClientReady, async (c) => {
     for (const guild of c.guilds.cache.values()) {
         await updateMemberStat(guild);
     }
+
+    // Auto-restore SP1 yang sudah expired
+    await checkExpiredSP(c);
+    setInterval(() => checkExpiredSP(c), 30 * 60 * 1000);
 
     // Register slash commands
     const commands = [
@@ -168,6 +176,31 @@ client.once(Events.ClientReady, async (c) => {
             .setName('panel')
             .setDescription('Panel Admin Server — channel, role, config (Owner only)'),
         new SlashCommandBuilder()
+            .setName('sp')
+            .setDescription('Kelola Surat Peringatan seller (Owner only)')
+            .addSubcommand(sub =>
+                sub.setName('give')
+                    .setDescription('Berikan SP ke seller')
+                    .addUserOption(opt =>
+                        opt.setName('seller').setDescription('Target seller').setRequired(true)
+                    )
+                    .addIntegerOption(opt =>
+                        opt.setName('level').setDescription('Level SP').setRequired(true)
+                            .addChoices(
+                                { name: 'SP-1 ⚠️ Warning (hide 7 hari)', value: 1 },
+                                { name: 'SP-2 🔴 Denda', value: 2 },
+                                { name: 'SP-3 💀 Kick + Blacklist', value: 3 },
+                            )
+                    )
+            )
+            .addSubcommand(sub =>
+                sub.setName('list')
+                    .setDescription('Lihat daftar SP')
+                    .addUserOption(opt =>
+                        opt.setName('seller').setDescription('Filter by seller').setRequired(false)
+                    )
+            ),
+        new SlashCommandBuilder()
             .setName('product')
             .setDescription('Kelola produk/jasa')
             .addSubcommand(sub =>
@@ -224,6 +257,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (interaction.commandName === 'shelp')          await handleSellerHelp(interaction);
             if (interaction.commandName === 'devhelp')        await handleDevHelp(interaction);
             if (interaction.commandName === 'panel')          await handlePanelCommand(interaction);
+            if (interaction.commandName === 'sp') {
+                const sub = interaction.options.getSubcommand();
+                if (sub === 'give') await handleSpGive(interaction);
+                if (sub === 'list') await handleSpList(interaction);
+            }
             if (interaction.commandName === 'myorders') {
                 const { rows } = await pool.query(
                     `SELECT order_count, points, vouchers FROM customer_loyalty WHERE user_id = $1`,
@@ -282,6 +320,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (mid === 'panel:ch_create_modal')              await handlePanelChCreateModal(interaction);
             if (mid.startsWith('panel:ch_rename_modal:'))     await handlePanelChRenameModal(interaction);
             if (mid === 'panel:role_create_modal')            await handlePanelRoleCreateModal(interaction);
+            if (mid.startsWith('sp:give:'))                    await handleSpGiveModal(interaction);
         }
 
         // Button interactions
@@ -392,6 +431,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (cid === 'panel:role_list')                     await handlePanelRoleList(interaction);
             if (cid === 'panel:config')                        await handlePanelConfig(interaction);
             if (cid === 'panel:blacklist')                     await handlePanelBlacklist(interaction);
+            if (cid === 'panel:products')                      await handlePanelProducts(interaction);
+            if (cid.startsWith('panel:product_assign:'))       await handlePanelProductAssign(interaction);
+            if (cid.startsWith('panel:product_unassign:'))     await handlePanelProductUnassign(interaction);
+            if (cid.startsWith('sp:confirm_denda:'))           await handleSpConfirmDenda(interaction);
         }
 
         // String select menus
@@ -406,6 +449,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             // Panel string selects
             if (sid.startsWith('panel:ch_perms_type:'))     await handlePanelChPermsType(interaction);
             if (sid.startsWith('panel:role_channel_perm:')) await handlePanelRoleChannelPerm(interaction);
+            if (sid === 'panel:product_pick')               await handlePanelProductPick(interaction);
         }
 
         // User select menus
@@ -419,7 +463,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             // Panel user selects
             if (uid === 'panel:role_assign_user')      await handlePanelRoleAssignUser(interaction);
             if (uid === 'panel:role_revoke_user')      await handlePanelRoleRevokeUser(interaction);
-            if (uid === 'panel:member_user')           await handlePanelMemberUser(interaction);
+            if (uid === 'panel:member_user')                      await handlePanelMemberUser(interaction);
+            if (uid.startsWith('panel:product_assign_user:'))     await handlePanelProductAssignUser(interaction);
         }
 
         // Role select menus
@@ -473,9 +518,10 @@ client.on(Events.MessageCreate, async (message) => {
     await handlePromoMessage(message);
 });
 
-// Stats: update member count saat ada yang join/keluar
+// Stats + welcome saat ada yang join
 client.on(Events.GuildMemberAdd, async (member) => {
     await updateMemberStat(member.guild);
+    await handleMemberJoin(member);
 });
 
 client.on(Events.GuildMemberRemove, async (member) => {

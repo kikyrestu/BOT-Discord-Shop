@@ -14,6 +14,7 @@ function rowToService(row: any): Service {
         price:     row.price,
         eta:       row.eta,
         thumbnail: row.thumbnail,
+        seller_id: row.seller_id ?? null,
     };
 }
 
@@ -50,4 +51,11 @@ export async function updateService(
         values
     );
     return rows[0] ? rowToService(rows[0]) : null;
+}
+
+export async function updateServiceSeller(serviceId: string, sellerId: string | null): Promise<void> {
+    await pool.query(
+        'UPDATE services SET seller_id = $1 WHERE id = $2',
+        [sellerId, serviceId]
+    );
 }

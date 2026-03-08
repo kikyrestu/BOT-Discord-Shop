@@ -6,6 +6,7 @@ import { buildServiceCard } from './card';
 import { PROMO_CHANNEL_NAME } from './promo';
 import { PAYMENT_CHANNEL_NAME } from './payment';
 import { createStatChannels } from './stats';
+import { WELCOME_CHANNEL_NAME } from './welcome';
 
 // ── Panduan embed builders (shared between setup & /updpanduan) ───────────────
 
@@ -276,8 +277,9 @@ export async function handleSetupConfirm(interaction: ButtonInteraction): Promis
 
     // ── 5. Server Core ─────────────────────────────────────────────────────────
     const catCore = await guild.channels.create({ name: '🛡️ SERVER CORE', type: ChannelType.GuildCategory });
-    await guild.channels.create({ name: '📜-rules',         parent: catCore.id, permissionOverwrites: readOnly });
-    await guild.channels.create({ name: '📢-announcements', parent: catCore.id, permissionOverwrites: readOnly });
+    await guild.channels.create({ name: '📜-rules',           parent: catCore.id, permissionOverwrites: readOnly });
+    await guild.channels.create({ name: '📢-announcements',   parent: catCore.id, permissionOverwrites: readOnly });
+    await guild.channels.create({ name: WELCOME_CHANNEL_NAME, parent: catCore.id, permissionOverwrites: readOnly });
 
     // ── 6. Seller Zone ─────────────────────────────────────────────────────────
     const catSeller = await guild.channels.create({ name: '👔 SELLER ZONE', type: ChannelType.GuildCategory, permissionOverwrites: sellerCat });
@@ -307,23 +309,85 @@ export async function handleSetupConfirm(interaction: ButtonInteraction): Promis
     // ── 8. Marketplace ─────────────────────────────────────────────────────────
     const catMarket = await guild.channels.create({ name: '🛒 MARKETPLACE', type: ChannelType.GuildCategory });
 
+    // Hanya buat channel untuk service yang sudah punya seller assigned
+    const sellerRoleObj = guild.roles.cache.find(r => r.name === ROLE_NAMES.SELLER);
     for (const s of await getAllServices()) {
-        const chan = await guild.channels.create({ name: s.name, parent: catMarket.id, permissionOverwrites: readOnly });
+        if (!(s as any).seller_id) continue; // skip kalau belum ada seller
+        const perms: any[] = [
+            { id: guild.id, deny: [PermissionFlagsBits.SendMessages] }, // @everyone: lihat, jangan kirim
+        ];
+        if (sellerRoleObj) {
+            perms.push({ id: sellerRoleObj.id, deny: [PermissionFlagsBits.ViewChannel] }); // blok semua seller
+        }
+        perms.push({ id: (s as any).seller_id, allow: [PermissionFlagsBits.ViewChannel] }); // hanya pemilik
+        const chan = await guild.channels.create({ name: s.name, parent: catMarket.id, permissionOverwrites: perms });
         const { embed, row } = await buildServiceCard(s);
         await chan.send({ embeds: [embed], components: [row] });
     }
 
     const payChan = await guild.channels.create({ name: PAYMENT_CHANNEL_NAME, parent: catMarket.id, permissionOverwrites: readOnly });
     await payChan.send({ embeds: [new EmbedBuilder()
-        .setTitle('💳 Cara Pembayaran')
+        .setTitle('💳 Cara Pembayaran & Alur Order')
         .setColor('#F5A623')
         .setDescription(
-            '**Metode pembayaran tersedia dari para Seller.**\n\n' +
-            'Lihat card pembayaran di bawah, transfer ke metode yang sesuai dengan seller kamu, ' +
-            'lalu konfirmasi ke seller di tiket order kamu.\n\n' +
-            '⚠️ Selalu konfirmasi pembayaran sebelum menganggap order selesai.'
+            '**Selamat datang di Maheswara Agency!**\n' +
+            'Berikut panduan lengkap mulai dari order sampai proyek selesai.\n\u200b'
         )
-        .setFooter({ text: 'Maheswara Agency • Selalu konfirmasi ke seller' })
+        .addFields(
+            {
+                name: '📋 Step 1 — Pilih Layanan',
+                value:
+                    '› Jelajahi channel di kategori **🛒 MARKETPLACE**\n' +
+                    '› Tiap channel berisi detail layanan: harga, estimasi, fitur\n' +
+                    '› Klik **🛒 Order Sekarang** atau **💬 Tanya Dulu** di card layanan',
+                inline: false,
+            },
+            {
+                name: '🎫 Step 2 — Tiket Order Dibuat',
+                value:
+                    '› Bot otomatis buat channel private khusus kamu & seller\n' +
+                    '› Kamu dapat **Invoice** via DM sebagai bukti order\n' +
+                    '› Ceritakan detail project: fitur, budget, deadline',
+                inline: false,
+            },
+            {
+                name: '💸 Step 3 — Pembayaran',
+                value:
+                    '› Sepakati harga final dengan seller di channel tiket\n' +
+                    '› Transfer ke metode pembayaran seller (lihat card payment di bawah)\n' +
+                    '› Klik **💸 Sudah Transfer** lalu upload screenshot bukti transfer\n' +
+                    '› Seller akan konfirmasi dana masuk → status jadi **Sedang Dikerjakan**',
+                inline: false,
+            },
+            {
+                name: '🔨 Step 4 — Pengerjaan',
+                value:
+                    '› Seller mengerjakan sesuai kesepakatan\n' +
+                    '› Status order bisa kamu pantau via `/orderstatus`\n' +
+                    '› Kamu dapat DM otomatis setiap ada update status\n' +
+                    '› Revisi bisa diminta sesuai ketentuan layanan',
+                inline: false,
+            },
+            {
+                name: '✅ Step 5 — Selesai & Review',
+                value:
+                    '› Seller closing tiket setelah semua beres\n' +
+                    '› Kamu dapat DM untuk kasih **⭐ rating & review**\n' +
+                    '› Review otomatis tampil di channel **⭐-reviews**\n' +
+                    '› Rating ≤3 bisa langsung lapor ke Owner',
+                inline: false,
+            },
+            {
+                name: '⚠️ Penting',
+                value:
+                    '› Jangan transfer sebelum ada kesepakatan di tiket\n' +
+                    '› Simpan screenshot bukti transfer\n' +
+                    '› Cek blacklist seller sebelum order: `/reviews`\n' +
+                    '› Masalah? Ping **Owner** atau buka tiket baru',
+                inline: false,
+            },
+        )
+        .setFooter({ text: 'Maheswara Agency • Transparansi adalah prioritas kami' })
     ]});
 
     await guild.channels.create({ name: '⭐-reviews', parent: catMarket.id, permissionOverwrites: readOnly });

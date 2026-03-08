@@ -91,6 +91,20 @@ export async function initDB(): Promise<void> {
     await pool.query(`
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS seller_id          TEXT    DEFAULT NULL;
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_confirmed  BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE services ADD COLUMN IF NOT EXISTS seller_id        TEXT    DEFAULT NULL;
+    `).catch(() => {});
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS seller_sp (
+            id            SERIAL PRIMARY KEY,
+            seller_id     TEXT        NOT NULL,
+            sp_level      INTEGER     NOT NULL CHECK (sp_level IN (1, 2, 3)),
+            reason        TEXT        NOT NULL,
+            denda_amount  INTEGER     NOT NULL DEFAULT 0,
+            denda_paid    BOOLEAN     NOT NULL DEFAULT FALSE,
+            hidden_until  TIMESTAMPTZ,
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
     `).catch(() => {});
 
     // Seed default services kalau tabel masih kosong
