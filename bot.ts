@@ -12,7 +12,7 @@ import { handleRefreshCards } from './src/modules/refresh';
 import { handleProductCommand, handleProductModal, handleProductAutocomplete } from './src/modules/products';
 import { handleRekberCommand, handleRekberModal, handleRekberButton } from './src/modules/rekber';
 import { handlePromoMessage } from './src/modules/promo';
-import { handleReviewButton, handleReviewsCommand } from './src/modules/review';
+import { handleReviewButton, handleReviewModal, handleReviewReport, handleReviewsCommand } from './src/modules/review';
 import { handlePaymentCommand, handlePaymentModal, handlePaymentAutocomplete } from './src/modules/payment';
 import {
     handleOrderStatusCommand, handleOrderUpdateCommand, handleOrderAutocomplete,
@@ -266,6 +266,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (mid.startsWith('rbac:lockdown_modal:'))      await handleRbacLockdownModal(interaction);
             if (mid.startsWith('ou:note_modal:'))            await handleOrderUpdateNoteModal(interaction);
             if (mid.startsWith('bl:add_modal:'))             await handleBlacklistAddModal(interaction);
+            if (mid.startsWith('review:submit:'))            await handleReviewModal(interaction);
             // Panel modals
             if (mid === 'panel:ch_create_modal')              await handlePanelChCreateModal(interaction);
             if (mid.startsWith('panel:ch_rename_modal:'))     await handlePanelChRenameModal(interaction);
@@ -286,8 +287,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 await handleRekberButton(interaction);
             }
 
+            if (interaction.customId.startsWith('review:rate:')) {
+                await handleReviewButton(interaction);
+            }
+
+            // Legacy review buttons (old format)
             if (interaction.customId.startsWith('review_')) {
                 await handleReviewButton(interaction);
+            }
+
+            if (interaction.customId.startsWith('review:report:')) {
+                await handleReviewReport(interaction);
             }
 
             if (interaction.customId === 'setup_confirm') {

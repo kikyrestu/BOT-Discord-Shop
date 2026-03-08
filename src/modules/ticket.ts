@@ -148,8 +148,8 @@ export async function handleCloseTicket(interaction: ButtonInteraction): Promise
     await interaction.reply({ content: '🔒 Tiket selesai. Channel akan dihapus dalam 5 detik...' });
 
     // Kirim DM ke buyer minta review sebelum channel dihapus
-    if (buyerId) {
-        await sendReviewPrompt(buyerId, serviceId, chanName, interaction.client);
+    if (buyerId && interaction.guild) {
+        await sendReviewPrompt(buyerId, serviceId, chanName, interaction.guild.id, interaction.client);
     }
 
     setTimeout(async () => {
