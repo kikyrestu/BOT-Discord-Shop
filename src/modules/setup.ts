@@ -63,27 +63,23 @@ export async function handleSetupConfirm(interaction: ButtonInteraction): Promis
     // 3. Buat semua roles
     const roleOwner = await guild.roles.create({
         name: ROLE_NAMES.OWNER, color: '#FF0000', hoist: true,
-        permissions: [PermissionFlagsBits.Administrator], position: 10
+        permissions: [PermissionFlagsBits.Administrator],
     });
     const roleAdmin = await guild.roles.create({
         name: ROLE_NAMES.ADMIN, color: '#FF6600', hoist: true,
         permissions: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.ViewChannel],
-        position: 9
     });
     const roleSeller = await guild.roles.create({
         name: ROLE_NAMES.SELLER, color: '#FFCC00', hoist: true,
         permissions: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
-        position: 8
     });
     await guild.roles.create({
         name: ROLE_NAMES.CUSTOMER, color: '#00CCFF', hoist: true,
         permissions: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
-        position: 7
     });
     await guild.roles.create({
         name: ROLE_NAMES.LOYAL, color: '#FFD700', hoist: true,
         permissions: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
-        position: 6
     });
 
     const ownerMember = await guild.members.fetch(OWNER_ID).catch(() => null);
