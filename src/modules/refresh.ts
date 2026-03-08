@@ -14,7 +14,7 @@ export async function handleRefreshCards(interaction: Interaction): Promise<void
 
     const results: string[] = [];
 
-    for (const s of getAllServices()) {
+    for (const s of await getAllServices()) {
         const result = await refreshCardInChannel(interaction.guild, s);
         if (result === 'updated')    results.push(`✅ Card \`${s.name}\` berhasil diupdate.`);
         else if (result === 'created')    results.push(`🆕 Card \`${s.name}\` dibuat baru.`);
