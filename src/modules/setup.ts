@@ -85,105 +85,176 @@ export async function handleSetupConfirm(interaction: ButtonInteraction): Promis
     const ownerMember = await guild.members.fetch(OWNER_ID).catch(() => null);
     if (ownerMember) await ownerMember.roles.add(roleOwner).catch(() => {});
 
-    // 4. Buat kategori
-    const staffRoles = [roleOwner, roleAdmin, roleSeller];
-    const staffOverwrites = [
-        { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-        ...staffRoles.map(r => ({ id: r.id, allow: [PermissionFlagsBits.ViewChannel] }))
+    // ── Permission Overwrites ─────────────────────────────────────────────────
+    const readOnly     = [{ id: guild.id, deny: [PermissionFlagsBits.SendMessages] }];
+    const hiddenAll    = [{ id: guild.id, deny: [PermissionFlagsBits.ViewChannel] }];
+
+    // Seller Zone: Seller + Admin + Owner
+    const sellerCat = [
+        { id: guild.id,      deny:  [PermissionFlagsBits.ViewChannel] },
+        { id: roleOwner.id,  allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+        { id: roleAdmin.id,  allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+        { id: roleSeller.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+    ];
+    const sellerRO = [
+        { id: guild.id,      deny:  [PermissionFlagsBits.ViewChannel] },
+        { id: roleOwner.id,  allow: [PermissionFlagsBits.ViewChannel], deny: [PermissionFlagsBits.SendMessages] },
+        { id: roleAdmin.id,  allow: [PermissionFlagsBits.ViewChannel], deny: [PermissionFlagsBits.SendMessages] },
+        { id: roleSeller.id, allow: [PermissionFlagsBits.ViewChannel], deny: [PermissionFlagsBits.SendMessages] },
     ];
 
-    const catCore    = await guild.channels.create({ name: '🛡️ SERVER CORE',     type: ChannelType.GuildCategory });
-    const catMarket  = await guild.channels.create({ name: '🛒 MARKETPLACE',     type: ChannelType.GuildCategory });
-    // ACTIVE PROJECTS: deny @everyone — kategori hanya muncul untuk customer yang punya tiket aktif
-    const catProject = await guild.channels.create({
-        name: '📂 ACTIVE PROJECTS',
-        type: ChannelType.GuildCategory,
-        permissionOverwrites: [{ id: guild.id, deny: [PermissionFlagsBits.ViewChannel] }],
-    });
-    const catStaff   = await guild.channels.create({ name: '🏦 INTERNAL STAFF',  type: ChannelType.GuildCategory, permissionOverwrites: staffOverwrites });
-    // Stats category — semua orang bisa lihat tapi tidak bisa join/kirim
+    // Internal Staff: Admin + Owner only
+    const adminCat = [
+        { id: guild.id,     deny:  [PermissionFlagsBits.ViewChannel] },
+        { id: roleOwner.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+        { id: roleAdmin.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+    ];
+    const adminRO = [
+        { id: guild.id,     deny:  [PermissionFlagsBits.ViewChannel] },
+        { id: roleOwner.id, allow: [PermissionFlagsBits.ViewChannel], deny: [PermissionFlagsBits.SendMessages] },
+        { id: roleAdmin.id, allow: [PermissionFlagsBits.ViewChannel], deny: [PermissionFlagsBits.SendMessages] },
+    ];
+
+    // Owner only
+    const ownerCat = [
+        { id: guild.id,     deny:  [PermissionFlagsBits.ViewChannel] },
+        { id: roleOwner.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+    ];
+    const ownerRO = [
+        { id: guild.id,     deny:  [PermissionFlagsBits.ViewChannel] },
+        { id: roleOwner.id, allow: [PermissionFlagsBits.ViewChannel], deny: [PermissionFlagsBits.SendMessages] },
+    ];
+
+    // ── 4. Stats (pertama = paling atas) ──────────────────────────────────────
     const catStats = await guild.channels.create({
-        name: '📊 SERVER STATS',
-        type: ChannelType.GuildCategory,
+        name: '📊 SERVER STATS', type: ChannelType.GuildCategory,
         permissionOverwrites: [{ id: guild.id, deny: [PermissionFlagsBits.Connect, PermissionFlagsBits.SendMessages] }],
     });
-
-    await setProjectCatId(catProject.id);
-
-    // Buat stat voice channels
     await createStatChannels(guild, catStats.id);
 
-    // 5. Channel core
-    await guild.channels.create({ name: 'rules',         parent: catCore.id, permissionOverwrites: [{ id: guild.id, deny: [PermissionFlagsBits.SendMessages] }] });
-    await guild.channels.create({ name: 'announcements', parent: catCore.id, permissionOverwrites: [{ id: guild.id, deny: [PermissionFlagsBits.SendMessages] }] });
+    // ── 5. Server Core ─────────────────────────────────────────────────────────
+    const catCore = await guild.channels.create({ name: '🛡️ SERVER CORE', type: ChannelType.GuildCategory });
+    await guild.channels.create({ name: '📜-rules',         parent: catCore.id, permissionOverwrites: readOnly });
+    await guild.channels.create({ name: '📢-announcements', parent: catCore.id, permissionOverwrites: readOnly });
 
-    // 6. Marketplace channels per jasa
+    // ── 6. Seller Zone ─────────────────────────────────────────────────────────
+    const catSeller = await guild.channels.create({ name: '👔 SELLER ZONE', type: ChannelType.GuildCategory, permissionOverwrites: sellerCat });
+
+    const guideSellerChan = await guild.channels.create({ name: '📋-panduan-seller', parent: catSeller.id, permissionOverwrites: sellerRO });
+    await guideSellerChan.send({ embeds: [new EmbedBuilder()
+        .setTitle('📋 Panduan Seller')
+        .setColor('#FFCC00')
+        .setDescription(
+            'Selamat datang di **Seller Zone**! Berikut command yang tersedia:\n\n' +
+            '`/shelp` — Lihat semua command seller\n' +
+            '`/product add` — Tambah layanan baru\n' +
+            '`/product edit` — Edit layanan\n' +
+            '`/product delete` — Hapus layanan\n' +
+            '`/payment add` — Tambah metode pembayaran\n' +
+            '`/payment remove` — Hapus metode pembayaran\n' +
+            '`/payment refresh` — Perbarui card pembayaran\n' +
+            '`/orderupdate` — Update status order\n' +
+            '`/rekber` — Buka sesi rekber/escrow\n\n' +
+            '💡 Ketik semua command di **🖥️-seller-terminal**'
+        )
+        .setFooter({ text: 'Channel ini read-only' })
+    ]});
+
+    await guild.channels.create({ name: '💼-seller-lounge',   parent: catSeller.id, permissionOverwrites: sellerCat });
+    await guild.channels.create({ name: '🖥️-seller-terminal', parent: catSeller.id, permissionOverwrites: sellerCat });
+
+    // ── 7. Internal Staff ──────────────────────────────────────────────────────
+    const catStaff = await guild.channels.create({ name: '🏦 INTERNAL STAFF', type: ChannelType.GuildCategory, permissionOverwrites: adminCat });
+
+    const guideAdminChan = await guild.channels.create({ name: '📋-panduan-admin', parent: catStaff.id, permissionOverwrites: adminRO });
+    await guideAdminChan.send({ embeds: [new EmbedBuilder()
+        .setTitle('📋 Panduan Admin')
+        .setColor('#FF6600')
+        .setDescription(
+            'Berikut command untuk **Admin**:\n\n' +
+            '`/devhelp` — Lihat semua command admin\n' +
+            '`/rbac` — Kelola role & akses channel\n' +
+            '`/blacklist` — Kelola daftar hitam buyer\n' +
+            '`/config` — Pengaturan bot\n' +
+            '`/dashboard` — Dashboard transaksi\n' +
+            '`/stats` — Statistik server\n' +
+            '`/orderupdate` — Update status order\n\n' +
+            '💡 Ketik semua command di **🖥️-admin-terminal**'
+        )
+        .setFooter({ text: 'Channel ini read-only' })
+    ]});
+
+    const guideOwnerChan = await guild.channels.create({ name: '📋-panduan-owner', parent: catStaff.id, permissionOverwrites: ownerRO });
+    await guideOwnerChan.send({ embeds: [new EmbedBuilder()
+        .setTitle('📋 Panduan Owner')
+        .setColor('#FF0000')
+        .setDescription(
+            'Berikut command eksklusif **Owner**:\n\n' +
+            '`/panel` — Panel admin server (channel, role, config)\n' +
+            '`/setup` — Setup ulang seluruh server\n' +
+            '`/refresh` — Refresh semua product cards\n' +
+            '`/config` — Pengaturan bot\n' +
+            '`/rbac` — Kelola role & akses channel\n' +
+            '`/blacklist` — Kelola daftar hitam\n' +
+            '`/devhelp` — Semua command owner\n\n' +
+            '💡 Ketik semua command di **🖥️-owner-terminal**'
+        )
+        .setFooter({ text: 'Channel ini read-only — Owner only' })
+    ]});
+
+    await guild.channels.create({ name: '🖥️-admin-terminal',      parent: catStaff.id, permissionOverwrites: adminCat });
+    await guild.channels.create({ name: '🖥️-owner-terminal',       parent: catStaff.id, permissionOverwrites: ownerCat });
+    await guild.channels.create({ name: '💰-payment-verification', parent: catStaff.id, permissionOverwrites: adminCat });
+    await guild.channels.create({ name: '🔒-rekber-log',           parent: catStaff.id, permissionOverwrites: adminCat });
+    await guild.channels.create({ name: '📋-rbac-log',             parent: catStaff.id, permissionOverwrites: adminCat });
+
+    // ── 8. Marketplace ─────────────────────────────────────────────────────────
+    const catMarket = await guild.channels.create({ name: '🛒 MARKETPLACE', type: ChannelType.GuildCategory });
+
     for (const s of await getAllServices()) {
-        const chan = await guild.channels.create({
-            name: s.name, parent: catMarket.id,
-            permissionOverwrites: [{ id: guild.id, deny: [PermissionFlagsBits.SendMessages] }]
-        });
+        const chan = await guild.channels.create({ name: s.name, parent: catMarket.id, permissionOverwrites: readOnly });
         const { embed, row } = await buildServiceCard(s);
         await chan.send({ embeds: [embed], components: [row] });
     }
 
-    // Channel cara pembayaran (seller isi sendiri via /payment)
-    const payGuideEmbed = new EmbedBuilder()
+    const payChan = await guild.channels.create({ name: PAYMENT_CHANNEL_NAME, parent: catMarket.id, permissionOverwrites: readOnly });
+    await payChan.send({ embeds: [new EmbedBuilder()
         .setTitle('💳 Cara Pembayaran')
-        .setDescription(
-            'Di channel ini setiap **Seller** menampilkan metode pembayaran mereka.\n\n' +
-            '**Untuk Seller:**\n' +
-            '`/payment add` — Tambah metode pembayaran\n' +
-            '`/payment remove` — Hapus metode pembayaran\n' +
-            '`/payment list` — Lihat daftar metode kamu\n' +
-            '`/payment refresh` — Perbarui card di channel ini\n\n' +
-            '**Untuk Buyer:**\n' +
-            'Lihat card di bawah dan transfer ke metode yang sesuai, lalu konfirmasi ke seller di tiket order kamu.'
-        )
         .setColor('#F5A623')
-        .setFooter({ text: 'Maheswara Agency • Selalu konfirmasi pembayaran ke seller' });
-    const payChan = await guild.channels.create({
-        name: PAYMENT_CHANNEL_NAME, parent: catMarket.id,
-        permissionOverwrites: [{ id: guild.id, deny: [PermissionFlagsBits.SendMessages] }]
-    });
-    await payChan.send({ embeds: [payGuideEmbed] });
+        .setDescription(
+            '**Metode pembayaran tersedia dari para Seller.**\n\n' +
+            'Lihat card pembayaran di bawah, transfer ke metode yang sesuai dengan seller kamu, ' +
+            'lalu konfirmasi ke seller di tiket order kamu.\n\n' +
+            '⚠️ Selalu konfirmasi pembayaran sebelum menganggap order selesai.'
+        )
+        .setFooter({ text: 'Maheswara Agency • Selalu konfirmasi ke seller' })
+    ]});
 
-    // 7. Kategori & channel komunitas
+    await guild.channels.create({ name: '⭐-reviews', parent: catMarket.id, permissionOverwrites: readOnly });
+
+    // ── 9. Active Projects ─────────────────────────────────────────────────────
+    const catProject = await guild.channels.create({ name: '📂 ACTIVE PROJECTS', type: ChannelType.GuildCategory, permissionOverwrites: hiddenAll });
+    await setProjectCatId(catProject.id);
+
+    // ── 10. Komunitas ──────────────────────────────────────────────────────────
     const catCommunity = await guild.channels.create({ name: '🌏 KOMUNITAS', type: ChannelType.GuildCategory });
     const promoChan = await guild.channels.create({ name: PROMO_CHANNEL_NAME, parent: catCommunity.id });
-    await guild.channels.create({ name: '⭐-reviews', parent: catCommunity.id, permissionOverwrites: [{ id: guild.id, deny: [PermissionFlagsBits.SendMessages] }] });
+    await guild.channels.create({ name: '💬-general', parent: catCommunity.id });
 
-    // Kirim panduan format di channel share server
-    const promoGuideEmbed = new EmbedBuilder()
+    await promoChan.send({ embeds: [new EmbedBuilder()
         .setTitle('🎮 Channel Share Server SA:MP')
+        .setColor('#00fbff')
         .setDescription(
-            'Share server SA:MP kamu di sini dan kenalkan ke komunitas!\n\n' +
+            'Share server SA:MP kamu di sini!\n\n' +
             '**⚠️ Aturan:**\n' +
             '• Khusus untuk server SA:MP\n' +
             '• Cooldown **6 jam** per akun\n' +
             '• Wajib menggunakan format di bawah\n\n' +
             '**📝 Format Wajib:**\n```\nNama Server: ...\nIP: ...\nDeskripsi: ...\n```'
         )
-        .setColor('#00fbff')
-        .setFooter({ text: 'Post yang tidak sesuai format akan otomatis dihapus' });
-    await promoChan.send({ embeds: [promoGuideEmbed] });
-
-    // 8. Staff channels
-    await guild.channels.create({
-        name: 'payment-verification', parent: catStaff.id,
-        permissionOverwrites: staffOverwrites
-    });
-    await guild.channels.create({
-        name: 'rekber-log', parent: catStaff.id,
-        permissionOverwrites: staffOverwrites
-    });
-    await guild.channels.create({
-        name: 'rbac-log', parent: catStaff.id,
-        permissionOverwrites: staffOverwrites
-    });
+        .setFooter({ text: 'Post yang tidak sesuai format akan otomatis dihapus' })
+    ]});
 
     console.log('✅ Server Setup Selesai!');
-
-    // DM owner karena channel asalnya udah ke-delete
     await interaction.user.send('✅ **Server setup selesai!** Semua channel & role sudah dibuat ulang.').catch(() => {});
 }
