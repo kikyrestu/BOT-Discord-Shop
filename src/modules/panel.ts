@@ -1192,7 +1192,7 @@ export async function handlePanelVoucherCreate(interaction: ButtonInteraction): 
         new ActionRowBuilder<TextInputBuilder>().addComponents(
             new TextInputBuilder()
                 .setCustomId('discount')
-                .setLabel('Diskon: "10%" untuk persen, "50000" untuk flat Rp')
+                .setLabel('Diskon: 10% (persen) atau 50000 (flat Rp)')
                 .setStyle(TextInputStyle.Short)
                 .setRequired(true)
                 .setPlaceholder('Contoh: 10%  atau  50000'),
@@ -1208,7 +1208,7 @@ export async function handlePanelVoucherCreate(interaction: ButtonInteraction): 
         new ActionRowBuilder<TextInputBuilder>().addComponents(
             new TextInputBuilder()
                 .setCustomId('expires')
-                .setLabel('Berlaku sampai DD/MM/YYYY (kosong = selamanya)')
+                .setLabel('Berlaku s/d DD/MM/YYYY (kosong=selamanya)')
                 .setStyle(TextInputStyle.Short)
                 .setRequired(false)
                 .setPlaceholder('31/12/2026 atau kosongkan'),
@@ -1216,7 +1216,7 @@ export async function handlePanelVoucherCreate(interaction: ButtonInteraction): 
         new ActionRowBuilder<TextInputBuilder>().addComponents(
             new TextInputBuilder()
                 .setCustomId('services')
-                .setLabel('ID jasa (kosong=semua, pisah koma: web,mobile)')
+                .setLabel('ID jasa pisah koma (kosong=semua jasa)')
                 .setStyle(TextInputStyle.Short)
                 .setRequired(false)
                 .setPlaceholder('web,mobile  atau kosongkan untuk semua jasa'),
