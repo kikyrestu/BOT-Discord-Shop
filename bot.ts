@@ -71,6 +71,8 @@ import {
     handlePanelMemberRm, handlePanelMemberRmRole,
     handlePanelProducts, handlePanelProductPick,
     handlePanelProductAssign, handlePanelProductAssignUser, handlePanelProductUnassign,
+    handlePanelVoucher, handlePanelVoucherCreate, handlePanelVoucherCreateModal,
+    handlePanelVoucherDelete, handlePanelVoucherDeletePick,
 } from './src/modules/panel';
 import { handleMemberJoin } from './src/modules/welcome';
 import { handleSpGive, handleSpGiveModal, handleSpConfirmDenda, handleSpList, checkExpiredSP } from './src/modules/sp';
@@ -391,6 +393,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (mid.startsWith('sp:give:'))                    await handleSpGiveModal(interaction);
             // Voucher modals
             if (mid === 'voucher:create_modal')                  await handleVoucherCreateModal(interaction);
+            if (mid === 'panel:voucher_create_modal')             await handlePanelVoucherCreateModal(interaction);
             if (mid === 'voucher:apply_modal')                   await handleVoucherApplyModal(interaction);
             // Ticket price/nego modals
             if (mid === 'ticket:set_price_modal')                await handleSetPriceModal(interaction);
@@ -510,6 +513,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (cid === 'panel:products')                      await handlePanelProducts(interaction);
             if (cid.startsWith('panel:product_assign:'))       await handlePanelProductAssign(interaction);
             if (cid.startsWith('panel:product_unassign:'))     await handlePanelProductUnassign(interaction);
+            if (cid === 'panel:voucher')                        await handlePanelVoucher(interaction);
+            if (cid === 'panel:voucher_create')                 await handlePanelVoucherCreate(interaction);
+            if (cid === 'panel:voucher_delete')                 await handlePanelVoucherDelete(interaction);
             if (cid.startsWith('sp:confirm_denda:'))           await handleSpConfirmDenda(interaction);
 
             // Ticket: price & negotiation
@@ -532,6 +538,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (sid.startsWith('panel:ch_perms_type:'))     await handlePanelChPermsType(interaction);
             if (sid.startsWith('panel:role_channel_perm:')) await handlePanelRoleChannelPerm(interaction);
             if (sid === 'panel:product_pick')               await handlePanelProductPick(interaction);
+            if (sid === 'panel:voucher_delete_pick')        await handlePanelVoucherDeletePick(interaction);
             // Package string selects
             if (sid.startsWith('pkg:edit_pick:'))   await handlePackageEditPick(interaction);
             if (sid.startsWith('pkg:delete_pick:')) await handlePackageDeletePick(interaction);

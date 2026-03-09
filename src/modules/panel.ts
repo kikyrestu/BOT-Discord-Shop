@@ -91,6 +91,9 @@ function mainRows(): ActionRowBuilder<ButtonBuilder>[] {
             new ButtonBuilder().setCustomId('panel:config').setLabel('\u2699\uFE0F Config').setStyle(ButtonStyle.Secondary),
             new ButtonBuilder().setCustomId('panel:blacklist').setLabel('\u{1F6AB} Blacklist').setStyle(ButtonStyle.Danger),
         ),
+        new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setCustomId('panel:voucher').setLabel('\u{1F3AB} Voucher').setStyle(ButtonStyle.Primary),
+        ),
     ];
 }
 
@@ -1130,3 +1133,235 @@ export async function handlePanelProductUnassign(interaction: ButtonInteraction)
         components: [backRow('panel:products', '\u2190 Products')],
     });
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PANEL: VOUCHER SECTION
+// ══════════════════════════════════════════════════════════════════════════════
+
+export async function handlePanelVoucher(interaction: ButtonInteraction): Promise<void> {
+    if (!isOwner(interaction.user.id)) return;
+
+    const { rows } = await pool.query(
+        'SELECT * FROM promo_vouchers ORDER BY created_at DESC LIMIT 20'
+    );
+
+    let desc = rows.length === 0
+        ? '📭 Belum ada voucher promo.'
+        : rows.map((v: any) => {
+            const discount = v.type === 'percent' ? `${v.value}%` : `Rp ${parseInt(v.value).toLocaleString('id-ID')}`;
+            const expiry   = v.expires_at
+                ? `<t:${Math.floor(new Date(v.expires_at).getTime() / 1000)}:D>`
+                : 'Selamanya';
+            const isExpired = v.expires_at && new Date(v.expires_at) < new Date();
+            const status    = isExpired ? '❌' : v.used_count >= v.max_uses ? '🔴' : '✅';
+            return `${status} **\`${v.code}\`** — ${discount} | ${v.used_count}/${v.max_uses}× | s/d ${expiry}`;
+        }).join('\n');
+
+    const embed = new EmbedBuilder()
+        .setTitle('🎟️ Voucher Promo Manager')
+        .setColor('#5865F2')
+        .setDescription(desc)
+        .setFooter({ text: 'Buat, lihat, atau hapus voucher promo diskon' });
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId('panel:voucher_create').setLabel('➕ Buat Voucher').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('panel:voucher_delete').setLabel('🗑️ Hapus Voucher').setStyle(ButtonStyle.Danger).setDisabled(rows.length === 0),
+        new ButtonBuilder().setCustomId('panel:main').setLabel('← Back').setStyle(ButtonStyle.Secondary),
+    );
+
+    await interaction.update({ embeds: [embed], components: [row] });
+}
+
+export async function handlePanelVoucherCreate(interaction: ButtonInteraction): Promise<void> {
+    if (!isOwner(interaction.user.id)) return;
+
+    const modal = new ModalBuilder()
+        .setCustomId('panel:voucher_create_modal')
+        .setTitle('Buat Voucher Promo Baru');
+
+    modal.addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+                .setCustomId('code')
+                .setLabel('Kode Voucher (contoh: DISKON50)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setMaxLength(20)
+                .setPlaceholder('DISKON50 (huruf kapital, tanpa spasi)'),
+        ),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+                .setCustomId('discount')
+                .setLabel('Diskon: "10%" untuk persen, "50000" untuk flat Rp')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setPlaceholder('Contoh: 10%  atau  50000'),
+        ),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+                .setCustomId('max_uses')
+                .setLabel('Maks pemakaian (contoh: 100)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setPlaceholder('1 = sekali pakai, 100 = bisa dipakai 100x'),
+        ),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+                .setCustomId('expires')
+                .setLabel('Berlaku sampai DD/MM/YYYY (kosong = selamanya)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(false)
+                .setPlaceholder('31/12/2026 atau kosongkan'),
+        ),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+                .setCustomId('services')
+                .setLabel('ID jasa (kosong=semua, pisah koma: web,mobile)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(false)
+                .setPlaceholder('web,mobile  atau kosongkan untuk semua jasa'),
+        ),
+    );
+
+    await interaction.showModal(modal);
+}
+
+export async function handlePanelVoucherCreateModal(interaction: ModalSubmitInteraction): Promise<void> {
+    if (!isOwner(interaction.user.id)) {
+        await interaction.reply({ content: '❌', ephemeral: true });
+        return;
+    }
+
+    const code     = interaction.fields.getTextInputValue('code').trim().toUpperCase().replace(/\s+/g, '');
+    const discount = interaction.fields.getTextInputValue('discount').trim();
+    const maxUses  = parseInt(interaction.fields.getTextInputValue('max_uses').trim());
+    const expires  = interaction.fields.getTextInputValue('expires').trim();
+    const services = interaction.fields.getTextInputValue('services').trim();
+
+    // Validate code
+    if (!/^[A-Z0-9_-]{1,20}$/.test(code)) {
+        await interaction.reply({ content: '❌ Kode voucher hanya boleh huruf kapital, angka, `-` atau `_`.', ephemeral: true });
+        return;
+    }
+
+    // Parse discount
+    const discountStr = discount.replace(/\./g, '');
+    let type: 'percent' | 'flat';
+    let value: number;
+    if (discountStr.endsWith('%')) {
+        const v = parseFloat(discountStr.slice(0, -1));
+        if (isNaN(v) || v <= 0 || v > 100) {
+            await interaction.reply({ content: '❌ Diskon persen harus antara 1–100%.', ephemeral: true });
+            return;
+        }
+        type = 'percent'; value = Math.round(v);
+    } else {
+        const v = parseInt(discountStr.replace(/[^\d]/g, ''));
+        if (isNaN(v) || v <= 0) {
+            await interaction.reply({ content: '❌ Diskon flat harus angka positif (Rp).', ephemeral: true });
+            return;
+        }
+        type = 'flat'; value = v;
+    }
+
+    if (isNaN(maxUses) || maxUses < 1) {
+        await interaction.reply({ content: '❌ Maks pemakaian harus angka ≥ 1.', ephemeral: true });
+        return;
+    }
+
+    // Parse expiry
+    let expiresAt: Date | null = null;
+    if (expires) {
+        const [d, m, y] = expires.split('/').map(Number);
+        expiresAt = new Date(y, m - 1, d, 23, 59, 59);
+        if (isNaN(expiresAt.getTime())) {
+            await interaction.reply({ content: '❌ Format tanggal salah. Gunakan DD/MM/YYYY.', ephemeral: true });
+            return;
+        }
+    }
+
+    // Parse services
+    const serviceIds = services
+        ? services.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+        : [];
+
+    // Check duplicate
+    const { rows: existing } = await pool.query('SELECT 1 FROM promo_vouchers WHERE code = $1', [code]);
+    if (existing.length > 0) {
+        await interaction.reply({ content: `❌ Voucher \`${code}\` sudah ada.`, ephemeral: true });
+        return;
+    }
+
+    await pool.query(
+        `INSERT INTO promo_vouchers (code, type, value, max_uses, used_count, expires_at, service_ids)
+         VALUES ($1, $2, $3, $4, 0, $5, $6)`,
+        [code, type, value, maxUses, expiresAt, serviceIds.length > 0 ? serviceIds : null]
+    );
+
+    const discDisplay = type === 'percent' ? `${value}%` : `Rp ${value.toLocaleString('id-ID')}`;
+    const expDisplay  = expiresAt ? `s/d ${expires}` : 'Selamanya';
+    await interaction.reply({
+        embeds: [new EmbedBuilder()
+            .setTitle('✅ Voucher Berhasil Dibuat')
+            .setColor('#00C851')
+            .addFields(
+                { name: '🏷️ Kode',    value: `\`${code}\``,                               inline: true },
+                { name: '💰 Diskon',  value: discDisplay,                                   inline: true },
+                { name: '🔄 Maks',    value: `${maxUses}×`,                                 inline: true },
+                { name: '📅 Masa',    value: expDisplay,                                    inline: true },
+                { name: '🛍️ Jasa',   value: serviceIds.length > 0 ? serviceIds.join(', ') : 'Semua', inline: true },
+            )
+        ],
+        ephemeral: true,
+    });
+}
+
+export async function handlePanelVoucherDelete(interaction: ButtonInteraction): Promise<void> {
+    if (!isOwner(interaction.user.id)) return;
+
+    const { rows } = await pool.query(
+        'SELECT code, type, value, used_count, max_uses FROM promo_vouchers ORDER BY created_at DESC LIMIT 25'
+    );
+
+    if (rows.length === 0) {
+        await interaction.reply({ content: '📭 Tidak ada voucher untuk dihapus.', ephemeral: true });
+        return;
+    }
+
+    const select = new StringSelectMenuBuilder()
+        .setCustomId('panel:voucher_delete_pick')
+        .setPlaceholder('Pilih voucher yang mau dihapus')
+        .addOptions(rows.map((v: any) => ({
+            label: v.code,
+            description: `${v.type === 'percent' ? v.value + '%' : 'Rp ' + parseInt(v.value).toLocaleString('id-ID')} | ${v.used_count}/${v.max_uses}×`,
+            value: v.code,
+        })));
+
+    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+    await interaction.update({
+        embeds: [new EmbedBuilder().setTitle('🗑️ Hapus Voucher').setColor('#FF0000').setDescription('Pilih voucher yang ingin dihapus:')],
+        components: [row, backRow('panel:voucher', '← Voucher')],
+    });
+}
+
+export async function handlePanelVoucherDeletePick(interaction: StringSelectMenuInteraction): Promise<void> {
+    if (!isOwner(interaction.user.id)) return;
+
+    const code = interaction.values[0];
+    const { rowCount } = await pool.query('DELETE FROM promo_vouchers WHERE code = $1', [code]);
+
+    if (!rowCount || rowCount === 0) {
+        await interaction.update({ content: '⚠️ Voucher tidak ditemukan.', embeds: [], components: [backRow('panel:voucher', '← Voucher')] });
+        return;
+    }
+
+    await interaction.update({
+        embeds: [new EmbedBuilder()
+            .setTitle('✅ Voucher Dihapus')
+            .setColor('#FF6600')
+            .setDescription(`Voucher \`${code}\` berhasil dihapus.`)
+        ],
+        components: [backRow('panel:voucher', '← Voucher')],
+    });
+}
+
