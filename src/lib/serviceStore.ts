@@ -1,5 +1,5 @@
 import { pool } from './db';
-import { Service } from '../config';
+import { Service, ServicePackage } from '../config';
 
 function rowToService(row: any): Service {
     return {
@@ -15,6 +15,7 @@ function rowToService(row: any): Service {
         eta:       row.eta,
         thumbnail: row.thumbnail,
         seller_id: row.seller_id ?? null,
+        packages:  row.packages ?? [],
     };
 }
 
@@ -42,6 +43,7 @@ export async function updateService(
     if (patch.stack     !== undefined) { updates.push(`stack = $${i++}`);       values.push(JSON.stringify(patch.stack)); }
     if (patch.features  !== undefined) { updates.push(`features = $${i++}`);   values.push(JSON.stringify(patch.features)); }
     if (patch.thumbnail !== undefined) { updates.push(`thumbnail = $${i++}`);  values.push(patch.thumbnail); }
+    if (patch.packages  !== undefined) { updates.push(`packages = $${i++}`);   values.push(JSON.stringify(patch.packages)); }
 
     if (updates.length === 0) return (await getService(id)) ?? null;
 

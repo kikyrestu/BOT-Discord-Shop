@@ -3,6 +3,13 @@ import 'dotenv/config';
 export const TOKEN        = process.env.TOKEN    ?? 'TOKEN_BOT_LU_DISINI';
 export const OWNER_ID     = process.env.OWNER_ID ?? 'ID_DISCORD_LU_DISINI';
 
+export interface ServicePackage {
+    name:     string;   // "Paket Basic"
+    price:    number;   // integer Rp
+    features: string[]; // list fitur paket
+    eta?:     string;   // override estimasi (opsional)
+}
+
 export interface Service {
     id:        string;
     name:      string;
@@ -16,6 +23,7 @@ export interface Service {
     eta:       string;
     thumbnail: string; // URL gambar/banner, kosongkan '' kalau belum ada
     seller_id?: string | null;
+    packages:  ServicePackage[]; // max 3, kosong = harga manual
 }
 
 // Data default — hanya dipakai untuk seed pertama kali data/services.json
@@ -39,6 +47,7 @@ export const DEFAULT_SERVICES: Service[] = [
         price:     'Mulai Rp 150.000',
         eta:       '3 – 14 hari',
         thumbnail: '',
+        packages:  [],
     },
     {
         id:       'fitur',
@@ -58,6 +67,7 @@ export const DEFAULT_SERVICES: Service[] = [
         price:     'Mulai Rp 25.000',
         eta:       '1 – 7 hari',
         thumbnail: '',
+        packages:  [],
     },
     {
         id:       'mapping',
@@ -77,6 +87,7 @@ export const DEFAULT_SERVICES: Service[] = [
         price:     'Mulai Rp 20.000',
         eta:       '1 – 5 hari',
         thumbnail: '',
+        packages:  [],
     },
     {
         id:       'bot',
@@ -96,6 +107,7 @@ export const DEFAULT_SERVICES: Service[] = [
         price:     'Mulai Rp 50.000',
         eta:       '2 – 10 hari',
         thumbnail: '',
+        packages:  [],
     },
 ];
 

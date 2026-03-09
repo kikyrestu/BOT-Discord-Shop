@@ -13,24 +13,39 @@ export async function buildServiceCard(s: Service): Promise<{
     embed: EmbedBuilder;
     row: ActionRowBuilder<ButtonBuilder>;
 }> {
-    const cfg          = await getBotConfig();
-    const featuresText = s.features.map(f => `› ${f}`).join('\n');
-    const stackText    = s.stack.join(' • ');
+    const cfg       = await getBotConfig();
+    const stackText = s.stack.join(' • ');
 
     const embed = new EmbedBuilder()
         .setColor(s.color as any)
         .setTitle(`${s.emoji}  ${s.title.toUpperCase()}`)
         .setDescription(s.desc)
-        .addFields(
-            { name: '🛠️ Tech Stack / Tools',     value: stackText,    inline: false },
-            { name: '✨ Yang Kamu Dapat',       value: featuresText, inline: false },
-            { name: '💰 Harga',              value: s.price,      inline: true  },
-            { name: '⏱️ Estimasi Pengerjaan', value: s.eta,        inline: true  },
-        )
+        .addFields({ name: '🛠️ Tech Stack / Tools', value: stackText, inline: false })
         .setFooter({ text: `${cfg.agency_name} • Klik tombol di bawah untuk order` })
         .setTimestamp();
 
     if (s.thumbnail) embed.setThumbnail(s.thumbnail);
+
+    if (s.packages && s.packages.length > 0) {
+        // Render per-paket sebagai kolom terpisah
+        for (const pkg of s.packages.slice(0, 3)) {
+            const featText = pkg.features.map(f => `› ${f}`).join('\n');
+            const etaText  = pkg.eta ?? s.eta;
+            embed.addFields({
+                name:   `📦 ${pkg.name}`,
+                value:  `${featText}\n\n💰 **Rp ${pkg.price.toLocaleString('id-ID')}**\n⏱️ ${etaText}`,
+                inline: true,
+            });
+        }
+    } else {
+        // Fallback: tampilan lama tanpa paket
+        const featuresText = s.features.map(f => `› ${f}`).join('\n');
+        embed.addFields(
+            { name: '✨ Yang Kamu Dapat',       value: featuresText, inline: false },
+            { name: '💰 Harga',                 value: s.price,      inline: true  },
+            { name: '⏱️ Estimasi Pengerjaan',   value: s.eta,        inline: true  },
+        );
+    }
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()

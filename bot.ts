@@ -10,13 +10,14 @@ import { handleSetupRequest, handleSetupConfirm, handleUpdPanduan } from './src/
 import { handleTicket, handleCloseTicket,
     handleSetPrice, handleSetPriceModal,
     handleNegoPrice, handleNegoPriceModal, handleNegoAccept,
+    handlePackageSelectPrompt, handlePackageSelect,
 } from './src/modules/ticket';
 import {
     handleVoucherCommand, handleVoucherCreateModal,
     handleVoucherApplyBtn, handleVoucherApplyModal,
 } from './src/modules/voucher';
 import { handleRefreshCards } from './src/modules/refresh';
-import { handleProductCommand, handleProductModal, handleProductAutocomplete } from './src/modules/products';
+import { handleProductCommand, handleProductModal, handleProductAutocomplete, handlePackageEditPick, handlePackageDeletePick, handlePackageModal } from './src/modules/products';
 import { handleRekberCommand, handleRekberModal, handleRekberButton } from './src/modules/rekber';
 import { handlePromoMessage } from './src/modules/promo';
 import { handleReviewButton, handleReviewModal, handleReviewReport, handleReviewsCommand } from './src/modules/review';
@@ -217,6 +218,27 @@ client.once(Events.ClientReady, async (c) => {
                             .setRequired(true)
                             .setAutocomplete(true)
                     )
+            )
+            .addSubcommand(sub =>
+                sub.setName('package')
+                    .setDescription('Kelola paket harga produk (maks 3)')
+                    .addStringOption(opt =>
+                        opt.setName('id')
+                            .setDescription('ID produk')
+                            .setRequired(true)
+                            .setAutocomplete(true)
+                    )
+                    .addStringOption(opt =>
+                        opt.setName('action')
+                            .setDescription('Aksi')
+                            .setRequired(true)
+                            .addChoices(
+                                { name: 'Tambah Paket', value: 'add'    },
+                                { name: 'Edit Paket',   value: 'edit'   },
+                                { name: 'Hapus Paket',  value: 'delete' },
+                                { name: 'Lihat Paket',  value: 'list'   },
+                            )
+                    )
             ),
         new SlashCommandBuilder()
             .setName('voucher')
@@ -348,12 +370,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
             // Ticket price/nego modals
             if (mid === 'ticket:set_price_modal')                await handleSetPriceModal(interaction);
             if (mid === 'ticket:nego_modal')                     await handleNegoPriceModal(interaction);
+            // Package modals
+            if (mid.startsWith('pkg:add_modal:') || mid.startsWith('pkg:edit_modal:')) await handlePackageModal(interaction);
         }
 
         // Button interactions
         if (interaction.isButton()) {
             if (interaction.customId.startsWith('buy_')) {
-                await handleTicket(interaction, interaction.customId.replace('buy_', ''));
+                await handlePackageSelectPrompt(interaction, interaction.customId.replace('buy_', ''));
             }
 
             if (interaction.customId === 'close_ticket') {
@@ -483,6 +507,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (sid.startsWith('panel:ch_perms_type:'))     await handlePanelChPermsType(interaction);
             if (sid.startsWith('panel:role_channel_perm:')) await handlePanelRoleChannelPerm(interaction);
             if (sid === 'panel:product_pick')               await handlePanelProductPick(interaction);
+            // Package string selects
+            if (sid.startsWith('pkg:edit_pick:'))   await handlePackageEditPick(interaction);
+            if (sid.startsWith('pkg:delete_pick:')) await handlePackageDeletePick(interaction);
+            if (sid.startsWith('pkg:select:'))      await handlePackageSelect(interaction);
         }
 
         // User select menus

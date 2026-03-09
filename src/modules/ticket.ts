@@ -2,6 +2,7 @@
     Interaction, ButtonInteraction, ChannelType, PermissionFlagsBits,
     EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel,
     ModalBuilder, TextInputBuilder, TextInputStyle, ModalSubmitInteraction,
+    StringSelectMenuBuilder, StringSelectMenuInteraction,
 } from 'discord.js';
 import { ROLE_NAMES } from '../config';
 import { PROJECT_CAT_ID } from '../state';
@@ -381,3 +382,163 @@ export async function handleNegoAccept(interaction: ButtonInteraction): Promise<
     );
 }
 
+// ── Package select flow ───────────────────────────────────────────────────────
+
+// Show package dropdown when buyer clicks buy_<serviceId> and service has packages
+export async function handlePackageSelectPrompt(interaction: ButtonInteraction, serviceId: string): Promise<void> {
+    if (!interaction.guild) return;
+    const service = await getService(serviceId).catch(() => null);
+    if (!service || !service.packages || service.packages.length === 0) {
+        // No packages — fall through to regular ticket
+        await handleTicket(interaction, serviceId);
+        return;
+    }
+
+    const menu = new StringSelectMenuBuilder()
+        .setCustomId(`pkg:select:${serviceId}`)
+        .setPlaceholder('Pilih paket yang kamu inginkan')
+        .addOptions(service.packages.map((p, i) => ({
+            label: p.name,
+            description: `Rp ${p.price.toLocaleString('id-ID')}${p.eta ? ` · ${p.eta}` : ''}`,
+            value: String(i),
+        })));
+
+    await interaction.reply({
+        embeds: [new EmbedBuilder()
+            .setTitle(`📦 Pilih Paket — ${service.emoji} ${service.title}`)
+            .setColor('#5865F2')
+            .setDescription(
+                service.packages.map((p, i) =>
+                    `**${i + 1}. ${p.name}** — Rp ${p.price.toLocaleString('id-ID')}` +
+                    (p.eta ? ` (${p.eta})` : '') + '\n' +
+                    p.features.map(f => `› ${f}`).join('\n')
+                ).join('\n\n')
+            )
+        ],
+        components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
+        ephemeral: true,
+    });
+}
+
+// Handle buyer selecting a package from the dropdown
+export async function handlePackageSelect(interaction: StringSelectMenuInteraction): Promise<void> {
+    if (!interaction.guild) return;
+    const parts     = interaction.customId.split(':'); // ['pkg','select','<serviceId>']
+    const serviceId = parts[2];
+    const pkgIndex  = parseInt(interaction.values[0], 10);
+    const service   = await getService(serviceId).catch(() => null);
+
+    if (!service || !service.packages || !service.packages[pkgIndex]) {
+        await interaction.reply({ content: '❌ Paket tidak ditemukan.', ephemeral: true });
+        return;
+    }
+
+    const pkg = service.packages[pkgIndex];
+
+    // Update message to show selected package
+    await interaction.update({
+        embeds: [new EmbedBuilder()
+            .setTitle(`✅ Paket dipilih: ${pkg.name}`)
+            .setColor('#00FF88')
+            .setDescription(`💰 **Rp ${pkg.price.toLocaleString('id-ID')}**${pkg.eta ? `\n⏱️ ${pkg.eta}` : ''}\n\n${pkg.features.map(f => `› ${f}`).join('\n')}`)
+        ],
+        components: [],
+    });
+
+    // Create ticket — replicate handleTicket flow with package pre-filled
+    if (!PROJECT_CAT_ID) {
+        await interaction.followUp({ content: '❌ Kategori project belum ada! Hubungi Owner untuk /setup ulang.', ephemeral: true });
+        return;
+    }
+
+    if (await isBlacklisted(interaction.user.id)) {
+        await interaction.followUp({ content: '🚫 Kamu sedang dalam blacklist.', ephemeral: true });
+        return;
+    }
+
+    const staffRoleNames = [ROLE_NAMES.OWNER, ROLE_NAMES.ADMIN, ROLE_NAMES.SELLER];
+    const guildRoles = await interaction.guild.roles.fetch();
+    const staffOverwrites = guildRoles
+        .filter(r => staffRoleNames.includes(r.name))
+        .map(r => ({ id: r.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }));
+
+    const channel = await interaction.guild.channels.create({
+        name: `order-${serviceId}-${interaction.user.id}`,
+        type: ChannelType.GuildText,
+        parent: PROJECT_CAT_ID,
+        permissionOverwrites: [
+            { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+            { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+            ...staffOverwrites,
+        ],
+    });
+
+    const member  = await interaction.guild.members.fetch(interaction.user.id);
+    const loyalty = await recordOrder(member);
+
+    const orderEmbed = new EmbedBuilder()
+        .setTitle(`🛒 New Order: ${service.emoji} ${service.title}`)
+        .setDescription(
+            `Halo ${interaction.user}, admin/seller akan segera melayani Anda.\n\n` +
+            `**Paket dipilih:** 📦 **${pkg.name}**\n` +
+            `💰 **Rp ${pkg.price.toLocaleString('id-ID')}** (harga sudah disepakati)\n\n` +
+            `📊 **Poin Kamu:** ${loyalty.points} pts  |  **Total Order:** ${loyalty.orderCount}×`
+        )
+        .setColor('#00ff00')
+        .addFields(
+            { name: '📦 Paket',   value: pkg.name,                                  inline: true },
+            { name: '💰 Harga',   value: `Rp ${pkg.price.toLocaleString('id-ID')}`, inline: true },
+            ...(pkg.eta ? [{ name: '⏱️ Estimasi', value: pkg.eta, inline: true }] : []),
+        );
+
+    const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId('ticket:voucher').setLabel('🎟️ Pakai Voucher').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`pay:transfer:${channel.id}`).setLabel('💸 Sudah Transfer').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('close_ticket').setLabel('🔒 Tutup Tiket').setStyle(ButtonStyle.Danger),
+    );
+
+    await channel.send({ content: `${interaction.user}`, embeds: [orderEmbed], components: [actionRow] });
+
+    // Pre-set price_agreed and package_name in DB
+    const orderId = `${serviceId}-${interaction.user.id}-${Date.now()}`;
+    await pool.query(
+        `INSERT INTO orders (order_id, user_id, service_id, status, channel_name, price_agreed, package_name)
+         VALUES ($1, $2, $3, 'open', $4, $5, $6)
+         ON CONFLICT (order_id) DO NOTHING`,
+        [orderId, interaction.user.id, serviceId, channel.name, pkg.price, pkg.name]
+    );
+
+    const paymentChan = interaction.guild.channels.cache.find(
+        c => c.name === 'payment-verification' && c.isTextBased()
+    ) as TextChannel | undefined;
+    if (paymentChan) {
+        await paymentChan.send({ embeds: [new EmbedBuilder()
+            .setTitle('🔔 Tiket Baru Masuk')
+            .setDescription(`Order **${serviceId.toUpperCase()}** (Paket ${pkg.name}) dari ${interaction.user}\nChannel: ${channel}`)
+            .setColor('#FFA500').setTimestamp()
+        ]});
+    }
+
+    await notifySellerNewOrder(interaction.guild, interaction.user.tag, serviceId, channel as TextChannel);
+
+    await sendInvoiceDM(interaction.client, {
+        orderId,
+        buyerId:     interaction.user.id,
+        serviceId,
+        channelName: channel.name,
+        guild:       interaction.guild,
+    });
+
+    const cfg = await getBotConfig();
+    if (loyalty.loyaltyReached && loyalty.voucher) {
+        await channel.send({ content: `${interaction.user}`, embeds: [new EmbedBuilder()
+            .setTitle('🎉 Selamat! Kamu Dapat Reward Loyalty!')
+            .setDescription(`Kamu udah order **${loyalty.orderCount}x**! Voucher diskon: \`${loyalty.voucher}\`\nRole **${ROLE_NAMES.LOYAL}** sudah di-assign.`)
+            .setColor('#FFD700')
+            .setFooter({ text: `${cfg.agency_name} • Loyalty Program` })
+        ]});
+    }
+
+    await interaction.followUp({ content: `✅ Tiket dibuat: ${channel}`, ephemeral: true });
+    await postSellerPaymentToTicket(interaction.user.id, channel as TextChannel, interaction.guild);
+}

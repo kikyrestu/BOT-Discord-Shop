@@ -92,9 +92,11 @@ export async function initDB(): Promise<void> {
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS seller_id          TEXT    DEFAULT NULL;
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_confirmed  BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE services ADD COLUMN IF NOT EXISTS seller_id        TEXT    DEFAULT NULL;
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS price_agreed    INTEGER DEFAULT NULL;
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS voucher_code    TEXT    DEFAULT NULL;
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE orders   ADD COLUMN IF NOT EXISTS price_agreed    INTEGER DEFAULT NULL;
+        ALTER TABLE orders   ADD COLUMN IF NOT EXISTS voucher_code    TEXT    DEFAULT NULL;
+        ALTER TABLE orders   ADD COLUMN IF NOT EXISTS discount_amount INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE orders   ADD COLUMN IF NOT EXISTS package_name   TEXT    DEFAULT NULL;
+        ALTER TABLE services ADD COLUMN IF NOT EXISTS packages       JSONB   NOT NULL DEFAULT '[]'::jsonb;
     `).catch(() => {});
 
     await pool.query(`
