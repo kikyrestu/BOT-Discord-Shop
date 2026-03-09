@@ -10,8 +10,8 @@
     ModalSubmitInteraction,
 } from 'discord.js';
 import { OWNER_ID, ServicePackage } from '../config';
-import { getAllServices, getService, updateService } from '../lib/serviceStore';
-import { refreshCardInChannel } from './card';
+import { getAllServices, getService, updateService, createService } from '../lib/serviceStore';
+import { buildServiceCard, refreshCardInChannel } from './card';
 
 export async function handleProductCommand(interaction: Interaction): Promise<void> {
     if (!interaction.isChatInputCommand() || !interaction.guild) return;
@@ -21,6 +21,60 @@ export async function handleProductCommand(interaction: Interaction): Promise<vo
     }
 
     const sub = interaction.options.getSubcommand();
+
+    if (sub === 'add') {
+        const modal = new ModalBuilder()
+            .setCustomId('product:add_modal')
+            .setTitle('Tambah Produk / Jasa Baru');
+
+        modal.addComponents(
+            new ActionRowBuilder<TextInputBuilder>().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('field_id')
+                    .setLabel('ID Produk (unik, huruf kecil, tanpa spasi)')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true)
+                    .setMaxLength(30)
+                    .setPlaceholder('contoh: web-landing, mobile-app')
+            ),
+            new ActionRowBuilder<TextInputBuilder>().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('field_title')
+                    .setLabel('Nama & Emoji (contoh: 🌐 Website Landing)')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true)
+                    .setMaxLength(60)
+                    .setPlaceholder('🌐 Website Landing Page')
+            ),
+            new ActionRowBuilder<TextInputBuilder>().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('field_desc')
+                    .setLabel('Deskripsi singkat')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setRequired(true)
+                    .setPlaceholder('Jasa pembuatan website landing page profesional...')
+            ),
+            new ActionRowBuilder<TextInputBuilder>().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('field_price')
+                    .setLabel('Harga (contoh: Rp 500.000)')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true)
+                    .setPlaceholder('Rp 500.000 atau Mulai dari Rp 300.000')
+            ),
+            new ActionRowBuilder<TextInputBuilder>().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('field_eta')
+                    .setLabel('Estimasi (contoh: 3-5 hari)')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true)
+                    .setPlaceholder('3-5 hari')
+            ),
+        );
+
+        await interaction.showModal(modal);
+        return;
+    }
 
     if (sub === 'list') {
         const services = await getAllServices();
@@ -299,4 +353,84 @@ export async function handlePackageModal(interaction: ModalSubmitInteraction): P
     await interaction.deferReply({ ephemeral: true });
     await refreshCardInChannel(interaction.guild, updated);
     await interaction.editReply({ content: `✅ Paket **${name}** berhasil ${isEdit ? 'diperbarui' : 'ditambahkan'}. Card produk sudah diupdate.` });
+}
+
+// ── /product add — modal submit ───────────────────────────────────────────────
+export async function handleProductCreateModal(interaction: Interaction): Promise<void> {
+    if (!interaction.isModalSubmit() || !interaction.guild) return;
+    if (interaction.customId !== 'product:add_modal') return;
+    if (interaction.user.id !== OWNER_ID) {
+        await interaction.reply({ content: '❌', ephemeral: true });
+        return;
+    }
+
+    const rawId    = interaction.fields.getTextInputValue('field_id').trim().toLowerCase().replace(/\s+/g, '-');
+    const rawTitle = interaction.fields.getTextInputValue('field_title').trim();
+    const desc     = interaction.fields.getTextInputValue('field_desc').trim();
+    const price    = interaction.fields.getTextInputValue('field_price').trim();
+    const eta      = interaction.fields.getTextInputValue('field_eta').trim();
+
+    // Validate ID format
+    if (!/^[a-z0-9_-]+$/.test(rawId)) {
+        await interaction.reply({
+            content: '❌ ID hanya boleh huruf kecil, angka, `-` atau `_`. Spasi tidak diizinkan.',
+            ephemeral: true,
+        });
+        return;
+    }
+
+    // Parse emoji + title from "🌐 Website Landing"
+    const emojiMatch = rawTitle.match(/^(\p{Emoji_Presentation}|\p{Extended_Pictographic})\s*/u);
+    const emoji      = emojiMatch ? emojiMatch[0].trim() : '📦';
+    const title      = emojiMatch ? rawTitle.slice(emojiMatch[0].length).trim() : rawTitle;
+    // channel name: lowercase, no emoji, spaces → dashes
+    const name       = title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-');
+    // random nice color
+    const colors     = ['#5865F2', '#00C851', '#FF6600', '#FFD700', '#00B8D4', '#E040FB'];
+    const color      = colors[Math.floor(Math.random() * colors.length)];
+
+    await interaction.deferReply({ ephemeral: true });
+
+    try {
+        const service = await createService({
+            id: rawId, name, color, emoji, title,
+            desc, stack: [], features: [], price, eta,
+        });
+
+        // Post card to marketplace channel (create if needed)
+        const { embed, row } = await buildServiceCard(service);
+        let chan = interaction.guild.channels.cache.find(
+            c => c.name === name && c.isTextBased()
+        ) as import('discord.js').TextChannel | undefined;
+
+        if (!chan) {
+            const catMarket = interaction.guild.channels.cache.find(
+                c => c.name.toLowerCase().includes('marketplace') && c.type === 4
+            );
+            chan = await interaction.guild.channels.create({
+                name,
+                type: 0,
+                parent: catMarket?.id,
+                permissionOverwrites: [
+                    { id: interaction.guild.id, deny: ['SendMessages'] },
+                ],
+            }) as import('discord.js').TextChannel;
+        }
+
+        await chan.send({ embeds: [embed], components: [row] });
+
+        await interaction.editReply({
+            content:
+                `✅ Produk **${emoji} ${title}** berhasil dibuat!\n` +
+                `> ID: \`${rawId}\` · Channel: <#${chan.id}>\n` +
+                `> Gunakan \`/product edit id:${rawId}\` untuk edit detail & \`/product package id:${rawId} action:add\` untuk tambah paket harga.`,
+        });
+    } catch (err: any) {
+        if (err?.code === '23505') {
+            await interaction.editReply({ content: `❌ ID \`${rawId}\` sudah dipakai. Gunakan ID lain.` });
+        } else {
+            console.error('handleProductCreateModal error:', err);
+            await interaction.editReply({ content: '❌ Gagal membuat produk. Cek log server.' });
+        }
+    }
 }

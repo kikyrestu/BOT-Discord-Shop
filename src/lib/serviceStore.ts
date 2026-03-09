@@ -61,3 +61,30 @@ export async function updateServiceSeller(serviceId: string, sellerId: string | 
         [sellerId, serviceId]
     );
 }
+
+export async function createService(data: {
+    id: string;
+    name: string;
+    color: string;
+    emoji: string;
+    title: string;
+    desc: string;
+    stack: string[];
+    features: string[];
+    price: string;
+    eta: string;
+}): Promise<Service> {
+    const { rows } = await pool.query(
+        `INSERT INTO services (id, name, color, emoji, title, description, stack, features, price, eta, packages)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, '[]'::jsonb)
+         RETURNING *`,
+        [
+            data.id, data.name, data.color, data.emoji, data.title,
+            data.desc,
+            JSON.stringify(data.stack),
+            JSON.stringify(data.features),
+            data.price, data.eta,
+        ]
+    );
+    return rowToService(rows[0]);
+}

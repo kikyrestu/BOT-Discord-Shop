@@ -17,7 +17,7 @@ import {
     handleVoucherApplyBtn, handleVoucherApplyModal,
 } from './src/modules/voucher';
 import { handleRefreshCards } from './src/modules/refresh';
-import { handleProductCommand, handleProductModal, handleProductAutocomplete, handlePackageEditPick, handlePackageDeletePick, handlePackageModal } from './src/modules/products';
+import { handleProductCommand, handleProductModal, handleProductCreateModal, handleProductAutocomplete, handlePackageEditPick, handlePackageDeletePick, handlePackageModal } from './src/modules/products';
 import { handleRekberCommand, handleRekberModal, handleRekberButton } from './src/modules/rekber';
 import { handlePromoMessage } from './src/modules/promo';
 import { handleReviewButton, handleReviewModal, handleReviewReport, handleReviewsCommand } from './src/modules/review';
@@ -209,6 +209,9 @@ client.once(Events.ClientReady, async (c) => {
             .setName('product')
             .setDescription('Kelola produk/jasa')
             .addSubcommand(sub =>
+                sub.setName('add').setDescription('Tambah produk/jasa baru')
+            )
+            .addSubcommand(sub =>
                 sub.setName('list').setDescription('Lihat semua produk beserta ID-nya')
             )
             .addSubcommand(sub =>
@@ -388,6 +391,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (mid.startsWith('review:submit:'))            await handleReviewModal(interaction);
             // Panel modals
             if (mid === 'panel:ch_create_modal')              await handlePanelChCreateModal(interaction);
+            if (mid === 'product:add_modal')                   await handleProductCreateModal(interaction);
             if (mid.startsWith('panel:ch_rename_modal:'))     await handlePanelChRenameModal(interaction);
             if (mid === 'panel:role_create_modal')            await handlePanelRoleCreateModal(interaction);
             if (mid.startsWith('sp:give:'))                    await handleSpGiveModal(interaction);
