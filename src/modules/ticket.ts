@@ -1,6 +1,7 @@
 ﻿import {
     Interaction, ButtonInteraction, ChannelType, PermissionFlagsBits,
-    EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel
+    EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel,
+    ModalBuilder, TextInputBuilder, TextInputStyle, ModalSubmitInteraction,
 } from 'discord.js';
 import { ROLE_NAMES } from '../config';
 import { PROJECT_CAT_ID } from '../state';
@@ -10,6 +11,8 @@ import { sendInvoiceDM } from './invoice';
 import { notifySellerNewOrder } from './ordertrack';
 import { isBlacklisted } from './blacklist';
 import { getBotConfig } from '../lib/botConfig';
+import { getService } from '../lib/serviceStore';
+import { pool } from '../lib/db';
 
 export async function handleTicket(interaction: Interaction, serviceId: string): Promise<void> {
     if (!interaction.guild || !interaction.isButton()) return;
@@ -48,29 +51,50 @@ export async function handleTicket(interaction: Interaction, serviceId: string):
 
     const member = await interaction.guild.members.fetch(interaction.user.id);
     const loyalty = await recordOrder(member);
+    const service = await getService(serviceId).catch(() => null);
 
     const orderEmbed = new EmbedBuilder()
-        .setTitle(`🛒 New Order: ${serviceId.toUpperCase()}`)
+        .setTitle(`🛒 New Order: ${service ? `${service.emoji} ${service.title}` : serviceId.toUpperCase()}`)
         .setDescription(
             `Halo ${interaction.user}, admin/seller akan segera melayani Anda.\n\n` +
-            `**Silahkan kirim detail project:**\n1. Deskripsi Fitur\n2. Budget\n3. Deadline\n\n` +
-            `📊 **Poin Kamu:** ${loyalty.points} pts  |  **Total Order:** ${loyalty.orderCount}x`
+            `**Silahkan kirim detail project:**\n1. Deskripsi & fitur yang diinginkan\n2. Budget & harga yang disetujui\n3. Deadline\n\n` +
+            `📊 **Poin Kamu:** ${loyalty.points} pts  |  **Total Order:** ${loyalty.orderCount}×`
         )
         .setColor('#00ff00');
 
-    const closeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    if (service?.price) {
+        orderEmbed.addFields({ name: '💰 Harga Mulai Dari', value: service.price, inline: true });
+    }
+
+    // Row 1: price negotiation tools (seller + buyer)
+    const priceRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+            .setCustomId('ticket:set_price')
+            .setLabel('💰 Set/Ubah Harga')
+            .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+            .setCustomId('ticket:nego')
+            .setLabel('🤝 Tawar Harga')
+            .setStyle(ButtonStyle.Secondary),
+    );
+
+    // Row 2: payment & voucher actions
+    const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+            .setCustomId('ticket:voucher')
+            .setLabel('🎟️ Pakai Voucher')
+            .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
             .setCustomId(`pay:transfer:${channel.id}`)
             .setLabel('💸 Sudah Transfer')
             .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
             .setCustomId('close_ticket')
-            .setLabel('Selesaikan & Tutup Tiket')
-            .setEmoji('🔒')
-            .setStyle(ButtonStyle.Danger)
+            .setLabel('🔒 Tutup Tiket')
+            .setStyle(ButtonStyle.Danger),
     );
 
-    await channel.send({ content: `${interaction.user}`, embeds: [orderEmbed], components: [closeRow] });
+    await channel.send({ content: `${interaction.user}`, embeds: [orderEmbed], components: [priceRow, actionRow] });
 
     // Notif ke payment-verification + ping seller
     const paymentChan = interaction.guild.channels.cache.find(
@@ -160,3 +184,185 @@ export async function handleCloseTicket(interaction: ButtonInteraction): Promise
         await interaction.channel?.delete().catch(() => {});
     }, 5000);
 }
+
+// ── Price / Negotiation handlers ─────────────────────────────────────────────
+
+/** Seller (or admin/owner) sets the agreed price for this ticket */
+export async function handleSetPrice(interaction: ButtonInteraction): Promise<void> {
+    if (!interaction.guild || !interaction.channel) return;
+
+    const member = await interaction.guild.members.fetch(interaction.user.id);
+    const staffRoles = [ROLE_NAMES.OWNER, ROLE_NAMES.ADMIN, ROLE_NAMES.SELLER];
+    const isStaff = member.roles.cache.some(r => staffRoles.includes(r.name));
+
+    if (!isStaff) {
+        await interaction.reply({ content: '❌ Hanya seller / staff yang bisa set harga.', ephemeral: true });
+        return;
+    }
+
+    const modal = new ModalBuilder()
+        .setCustomId('ticket:set_price_modal')
+        .setTitle('Set Harga Order');
+
+    modal.addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+                .setCustomId('price')
+                .setLabel('Harga yang disepakati (angka Rp, tanpa titik)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setPlaceholder('Contoh: 200000')
+        )
+    );
+
+    await interaction.showModal(modal);
+}
+
+export async function handleSetPriceModal(interaction: ModalSubmitInteraction): Promise<void> {
+    if (!interaction.channel || !interaction.guild) return;
+
+    const raw   = interaction.fields.getTextInputValue('price').replace(/[^\d]/g, '');
+    const price = parseInt(raw);
+
+    if (isNaN(price) || price < 1) {
+        await interaction.reply({ content: '❌ Harga tidak valid. Masukkan angka saja (contoh: 200000).', ephemeral: true });
+        return;
+    }
+
+    const channelName = (interaction.channel as TextChannel).name;
+
+    await pool.query(
+        `UPDATE orders SET price_agreed = $1 WHERE channel_name = $2`,
+        [price, channelName]
+    );
+
+    await interaction.reply({
+        embeds: [new EmbedBuilder()
+            .setTitle('✅ Harga Ditetapkan')
+            .setColor('#5865F2')
+            .addFields(
+                { name: '💰 Harga Disepakati', value: `Rp ${price.toLocaleString('id-ID')}`,  inline: true },
+                { name: '🎟️ Selanjutnya',      value: 'Buyer dapat pakai voucher lalu transfer', inline: true },
+            )
+            .setFooter({ text: 'Klik 🎟️ Pakai Voucher jika punya kode diskon, lalu 💸 Sudah Transfer.' })
+        ],
+    });
+}
+
+/** Buyer proposes a counter-price to the seller */
+export async function handleNegoPrice(interaction: ButtonInteraction): Promise<void> {
+    if (!interaction.channel) return;
+
+    const channelName = (interaction.channel as TextChannel).name;
+    const { rows } = await pool.query('SELECT buyer_id FROM orders WHERE channel_name = $1', [channelName]);
+
+    if (!rows[0]) {
+        await interaction.reply({ content: '❌ Order tidak ditemukan.', ephemeral: true });
+        return;
+    }
+
+    if (interaction.user.id !== rows[0].buyer_id) {
+        await interaction.reply({ content: '❌ Hanya buyer yang bisa menawar harga.', ephemeral: true });
+        return;
+    }
+
+    const modal = new ModalBuilder()
+        .setCustomId('ticket:nego_modal')
+        .setTitle('Tawar Harga');
+
+    modal.addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+                .setCustomId('offer')
+                .setLabel('Harga tawaranmu (angka Rp, tanpa titik)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setPlaceholder('Contoh: 150000')
+        )
+    );
+
+    await interaction.showModal(modal);
+}
+
+export async function handleNegoPriceModal(interaction: ModalSubmitInteraction): Promise<void> {
+    if (!interaction.channel) return;
+
+    const raw   = interaction.fields.getTextInputValue('offer').replace(/[^\d]/g, '');
+    const offer = parseInt(raw);
+
+    if (isNaN(offer) || offer < 1) {
+        await interaction.reply({ content: '❌ Harga tidak valid. Masukkan angka saja (contoh: 150000).', ephemeral: true });
+        return;
+    }
+
+    const acceptRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`ticket:nego_accept:${offer}`)
+            .setLabel(`✅ Setuju — Rp ${offer.toLocaleString('id-ID')}`)
+            .setStyle(ButtonStyle.Success),
+    );
+
+    await interaction.reply({
+        embeds: [new EmbedBuilder()
+            .setTitle('🤝 Penawaran Harga')
+            .setColor('#FEE75C')
+            .setDescription(`${interaction.user} mengajukan penawaran harga untuk order ini.`)
+            .addFields({ name: '💸 Tawaran', value: `**Rp ${offer.toLocaleString('id-ID')}**`, inline: true })
+            .setFooter({ text: 'Seller: klik tombol di bawah jika setuju dengan harga ini.' })
+        ],
+        components: [acceptRow],
+    });
+}
+
+/** Seller accepts the buyer's negotiated offer */
+export async function handleNegoAccept(interaction: ButtonInteraction): Promise<void> {
+    if (!interaction.guild || !interaction.channel) return;
+
+    const member = await interaction.guild.members.fetch(interaction.user.id);
+    const staffRoles = [ROLE_NAMES.OWNER, ROLE_NAMES.ADMIN, ROLE_NAMES.SELLER];
+    const isStaff = member.roles.cache.some(r => staffRoles.includes(r.name));
+
+    if (!isStaff) {
+        await interaction.reply({ content: '❌ Hanya seller / staff yang bisa menyetujui penawaran.', ephemeral: true });
+        return;
+    }
+
+    // Extract price from customId: ticket:nego_accept:<price>
+    const priceStr = interaction.customId.split(':')[2];
+    const price    = parseInt(priceStr);
+
+    if (isNaN(price) || price < 1) {
+        await interaction.reply({ content: '❌ Data harga tidak valid.', ephemeral: true });
+        return;
+    }
+
+    const channelName = (interaction.channel as TextChannel).name;
+
+    await pool.query(
+        `UPDATE orders SET price_agreed = $1 WHERE channel_name = $2`,
+        [price, channelName]
+    );
+
+    // Disable the accept button on the original message
+    const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`ticket:nego_accept:${price}`)
+            .setLabel(`✅ Disetujui — Rp ${price.toLocaleString('id-ID')}`)
+            .setStyle(ButtonStyle.Success)
+            .setDisabled(true),
+    );
+    await interaction.update({ components: [disabledRow] });
+
+    await (interaction.channel as TextChannel).send({
+        embeds: [new EmbedBuilder()
+            .setTitle('✅ Harga Disepakati')
+            .setColor('#00FF88')
+            .addFields(
+                { name: '💰 Harga Disepakati', value: `Rp ${price.toLocaleString('id-ID')}`, inline: true },
+                { name: '🎟️ Selanjutnya',      value: 'Buyer dapat pakai voucher lalu transfer',  inline: true },
+            )
+            .setFooter({ text: 'Klik 🎟️ Pakai Voucher jika punya kode diskon, lalu 💸 Sudah Transfer.' })
+        ],
+    });
+}
+

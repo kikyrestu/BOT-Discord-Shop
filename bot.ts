@@ -7,7 +7,14 @@ import { TOKEN, OWNER_ID } from './src/config';
 import { initDB } from './src/lib/db';
 import { loadProjectCatId } from './src/state';
 import { handleSetupRequest, handleSetupConfirm, handleUpdPanduan } from './src/modules/setup';
-import { handleTicket, handleCloseTicket } from './src/modules/ticket';
+import { handleTicket, handleCloseTicket,
+    handleSetPrice, handleSetPriceModal,
+    handleNegoPrice, handleNegoPriceModal, handleNegoAccept,
+} from './src/modules/ticket';
+import {
+    handleVoucherCommand, handleVoucherCreateModal,
+    handleVoucherApplyBtn, handleVoucherApplyModal,
+} from './src/modules/voucher';
 import { handleRefreshCards } from './src/modules/refresh';
 import { handleProductCommand, handleProductModal, handleProductAutocomplete } from './src/modules/products';
 import { handleRekberCommand, handleRekberModal, handleRekberButton } from './src/modules/rekber';
@@ -111,12 +118,7 @@ client.once(Events.ClientReady, async (c) => {
             .setDescription('Lihat riwayat order & poin loyalty kamu'),
         new SlashCommandBuilder()
             .setName('redeem')
-            .setDescription('Redeem voucher diskon loyalty')
-            .addStringOption(opt =>
-                opt.setName('kode')
-                    .setDescription('Kode voucher kamu')
-                    .setRequired(true)
-            ),
+            .setDescription('Lihat daftar voucher loyalty kamu'),
         new SlashCommandBuilder()
             .setName('payment')
             .setDescription('Setup metode pembayaran kamu (khusus Seller)')
@@ -217,6 +219,18 @@ client.once(Events.ClientReady, async (c) => {
                     )
             ),
         new SlashCommandBuilder()
+            .setName('voucher')
+            .setDescription('Kelola voucher promo diskon (Owner only)')
+            .addSubcommand(sub => sub.setName('create').setDescription('Buat voucher promo baru'))
+            .addSubcommand(sub => sub.setName('list').setDescription('Lihat semua voucher promo'))
+            .addSubcommand(sub =>
+                sub.setName('delete')
+                    .setDescription('Hapus voucher promo')
+                    .addStringOption(opt =>
+                        opt.setName('code').setDescription('Kode voucher yang akan dihapus').setRequired(true)
+                    )
+            ),
+        new SlashCommandBuilder()
             .setName('help')
             .setDescription('Panduan penggunaan bot untuk buyer/member'),
         new SlashCommandBuilder()
@@ -284,16 +298,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     await interaction.reply({ embeds: [embed], ephemeral: true });
                 }
             }
+            if (interaction.commandName === 'voucher') await handleVoucherCommand(interaction);
+
             if (interaction.commandName === 'redeem') {
-                const kode = interaction.options.getString('kode', true).trim();
-                const { redeemVoucher } = await import('./src/modules/loyalty');
-                const result = await redeemVoucher(interaction.user.id, kode);
-                const msgs: Record<string, string> = {
-                    ok:           `✅ Voucher \`${kode}\` berhasil di-redeem! Tunjukkan ke admin untuk dapat diskon.`,
-                    not_found:    `❌ Voucher \`${kode}\` tidak ditemukan atau sudah dipakai.`,
-                    already_used: `❌ Voucher ini sudah pernah digunakan.`,
-                };
-                await interaction.reply({ content: msgs[result], ephemeral: true });
+                // Informational only — actual application happens via 🎟️ button in ticket
+                const { rows } = await pool.query(
+                    `SELECT vouchers, points FROM customer_loyalty WHERE user_id = $1`,
+                    [interaction.user.id]
+                );
+                if (!rows[0] || !rows[0].vouchers?.length) {
+                    await interaction.reply({ content: '📭 Kamu belum punya voucher loyalty.\n\nVoucher diberikan secara otomatis berdasarkan poin loyalty. Gunakan jasa kami lebih banyak untuk mendapatkan voucher!', ephemeral: true });
+                } else {
+                    const list = (rows[0].vouchers as string[]).map(v => `\`${v}\``).join('\n');
+                    await interaction.reply({
+                        content: `🎟️ **Voucher Loyalty Kamu:**\n${list}\n\n> Untuk memakai voucher, buka tiket order dan klik tombol **🎟️ Pakai Voucher**.`,
+                        ephemeral: true,
+                    });
+                }
             }
         }
 
@@ -321,6 +342,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (mid.startsWith('panel:ch_rename_modal:'))     await handlePanelChRenameModal(interaction);
             if (mid === 'panel:role_create_modal')            await handlePanelRoleCreateModal(interaction);
             if (mid.startsWith('sp:give:'))                    await handleSpGiveModal(interaction);
+            // Voucher modals
+            if (mid === 'voucher:create_modal')                  await handleVoucherCreateModal(interaction);
+            if (mid === 'voucher:apply_modal')                   await handleVoucherApplyModal(interaction);
+            // Ticket price/nego modals
+            if (mid === 'ticket:set_price_modal')                await handleSetPriceModal(interaction);
+            if (mid === 'ticket:nego_modal')                     await handleNegoPriceModal(interaction);
         }
 
         // Button interactions
@@ -435,6 +462,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (cid.startsWith('panel:product_assign:'))       await handlePanelProductAssign(interaction);
             if (cid.startsWith('panel:product_unassign:'))     await handlePanelProductUnassign(interaction);
             if (cid.startsWith('sp:confirm_denda:'))           await handleSpConfirmDenda(interaction);
+
+            // Ticket: price & negotiation
+            if (cid === 'ticket:set_price')                      await handleSetPrice(interaction);
+            if (cid === 'ticket:nego')                           await handleNegoPrice(interaction);
+            if (cid === 'ticket:voucher')                        await handleVoucherApplyBtn(interaction);
+            if (cid.startsWith('ticket:nego_accept:'))           await handleNegoAccept(interaction);
         }
 
         // String select menus

@@ -92,6 +92,9 @@ export async function initDB(): Promise<void> {
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS seller_id          TEXT    DEFAULT NULL;
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_confirmed  BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE services ADD COLUMN IF NOT EXISTS seller_id        TEXT    DEFAULT NULL;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS price_agreed    INTEGER DEFAULT NULL;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS voucher_code    TEXT    DEFAULT NULL;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount INTEGER NOT NULL DEFAULT 0;
     `).catch(() => {});
 
     await pool.query(`
@@ -104,6 +107,20 @@ export async function initDB(): Promise<void> {
             denda_paid    BOOLEAN     NOT NULL DEFAULT FALSE,
             hidden_until  TIMESTAMPTZ,
             created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    `).catch(() => {});
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS promo_vouchers (
+            code        TEXT        PRIMARY KEY,
+            type        TEXT        NOT NULL CHECK (type IN ('percent', 'flat')),
+            value       INTEGER     NOT NULL,
+            max_uses    INTEGER     NOT NULL DEFAULT 1,
+            used_count  INTEGER     NOT NULL DEFAULT 0,
+            service_ids TEXT[]      DEFAULT NULL,
+            expires_at  TIMESTAMPTZ DEFAULT NULL,
+            created_by  TEXT        NOT NULL,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
     `).catch(() => {});
 

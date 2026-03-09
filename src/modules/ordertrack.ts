@@ -420,14 +420,31 @@ export async function handlePaymentBuyerBtn(
     ) as TextChannel | undefined;
 
     if (paymentChan) {
+        // Build price info string
+        let priceInfo = '';
+        if (order.price_agreed) {
+            const agreed   = parseInt(order.price_agreed);
+            const discount = parseInt(order.discount_amount ?? '0');
+            const total    = agreed - discount;
+            priceInfo = `\n💰 **Harga Disepakati:** Rp ${agreed.toLocaleString('id-ID')}\n`;
+            if (order.voucher_code && discount > 0) {
+                priceInfo += `🎟️ **Voucher:** \`${order.voucher_code}\` (−Rp ${discount.toLocaleString('id-ID')})\n`;
+                priceInfo += `✅ **Total Transfer:** Rp ${total.toLocaleString('id-ID')}`;
+            } else {
+                priceInfo += `✅ **Total Transfer:** Rp ${agreed.toLocaleString('id-ID')}`;
+            }
+        } else {
+            priceInfo = '\n⚠️ _Harga belum ditetapkan — konfirmasi manual dengan buyer._';
+        }
+
         const embed = new EmbedBuilder()
             .setTitle('💸 Buyer Sudah Transfer — Konfirmasi Dana')
             .setDescription(
                 `**Invoice:** \`${order.invoice_no}\`\n` +
                 `**Layanan:** ${order.service_id.toUpperCase()}\n` +
                 `**Buyer:** <@${order.buyer_id}>\n` +
-                `**Channel Tiket:** ${chan}\n\n` +
-                `Cek bukti transfer di channel tiket, lalu konfirmasi dana masuk.`
+                `**Channel Tiket:** ${chan}` +
+                priceInfo + `\n\nCek bukti transfer di channel tiket, lalu konfirmasi dana masuk.`
             )
             .setColor('#FFCC00')
             .setTimestamp();
