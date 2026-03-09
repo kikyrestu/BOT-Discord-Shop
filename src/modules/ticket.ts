@@ -13,6 +13,7 @@ import { isBlacklisted } from './blacklist';
 import { getBotConfig } from '../lib/botConfig';
 import { getService } from '../lib/serviceStore';
 import { pool } from '../lib/db';
+import { postSellerPaymentToTicket } from './payment';
 
 export async function handleTicket(interaction: Interaction, serviceId: string): Promise<void> {
     if (!interaction.guild || !interaction.isButton()) return;
@@ -242,11 +243,18 @@ export async function handleSetPriceModal(interaction: ModalSubmitInteraction): 
             .setColor('#5865F2')
             .addFields(
                 { name: '💰 Harga Disepakati', value: `Rp ${price.toLocaleString('id-ID')}`,  inline: true },
-                { name: '🎟️ Selanjutnya',      value: 'Buyer dapat pakai voucher lalu transfer', inline: true },
+                { name: '🎟️ Selanjutnya',      value: 'Pakai voucher (opsional) lalu transfer ke rekening di bawah', inline: true },
             )
             .setFooter({ text: 'Klik 🎟️ Pakai Voucher jika punya kode diskon, lalu 💸 Sudah Transfer.' })
         ],
     });
+
+    // Auto-kirim payment card seller ke tiket
+    await postSellerPaymentToTicket(
+        interaction.user.id,
+        interaction.channel as TextChannel,
+        interaction.guild,
+    );
 }
 
 /** Buyer proposes a counter-price to the seller */
@@ -359,10 +367,17 @@ export async function handleNegoAccept(interaction: ButtonInteraction): Promise<
             .setColor('#00FF88')
             .addFields(
                 { name: '💰 Harga Disepakati', value: `Rp ${price.toLocaleString('id-ID')}`, inline: true },
-                { name: '🎟️ Selanjutnya',      value: 'Buyer dapat pakai voucher lalu transfer',  inline: true },
+                { name: '🎟️ Selanjutnya',      value: 'Pakai voucher (opsional) lalu transfer ke rekening di bawah',  inline: true },
             )
             .setFooter({ text: 'Klik 🎟️ Pakai Voucher jika punya kode diskon, lalu 💸 Sudah Transfer.' })
         ],
     });
+
+    // Auto-kirim payment card seller ke tiket
+    await postSellerPaymentToTicket(
+        interaction.user.id,
+        interaction.channel as TextChannel,
+        interaction.guild,
+    );
 }
 

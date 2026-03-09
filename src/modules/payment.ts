@@ -305,3 +305,46 @@ export async function handlePaymentAutocomplete(interaction: Interaction): Promi
 
     await interaction.respond(choices);
 }
+
+/**
+ * Kirim payment card seller langsung ke channel tiket.
+ * Dipanggil otomatis setelah harga ditetapkan / nego diterima.
+ */
+export async function postSellerPaymentToTicket(
+    sellerId: string,
+    channel: TextChannel,
+    guild: Guild,
+): Promise<void> {
+    const { rows } = await pool.query<{ methods: PaymentMethod[] }>(
+        'SELECT methods FROM payment_methods WHERE seller_id = $1',
+        [sellerId]
+    );
+    const methods: PaymentMethod[] = rows[0]?.methods ?? [];
+
+    if (methods.length === 0) {
+        await channel.send({
+            embeds: [new EmbedBuilder()
+                .setTitle('⚠️ Info Rekening Belum Tersedia')
+                .setDescription(
+                    `Seller <@${sellerId}> belum setup metode pembayaran.\n` +
+                    `Silakan hubungi seller langsung untuk info rekening/transfer.`
+                )
+                .setColor('#FF6600')
+            ],
+        });
+        return;
+    }
+
+    const member = await guild.members.fetch(sellerId).catch(() => null);
+    const embed  = buildPaymentCard(
+        member?.user.tag ?? 'Seller',
+        member?.user.displayAvatarURL() ?? null,
+        sellerId,
+        methods,
+    );
+
+    await channel.send({
+        content: '💳 **Transfer ke salah satu rekening berikut:**',
+        embeds:  [embed],
+    });
+}
