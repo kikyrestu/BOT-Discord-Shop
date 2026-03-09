@@ -1293,9 +1293,9 @@ export async function handlePanelVoucherCreateModal(interaction: ModalSubmitInte
     }
 
     await pool.query(
-        `INSERT INTO promo_vouchers (code, type, value, max_uses, used_count, expires_at, service_ids)
-         VALUES ($1, $2, $3, $4, 0, $5, $6)`,
-        [code, type, value, maxUses, expiresAt, serviceIds.length > 0 ? serviceIds : null]
+        `INSERT INTO promo_vouchers (code, type, value, max_uses, used_count, expires_at, service_ids, created_by)
+         VALUES ($1, $2, $3, $4, 0, $5, $6, $7)`,
+        [code, type, value, maxUses, expiresAt, serviceIds.length > 0 ? serviceIds : null, interaction.user.id]
     );
 
     const discDisplay = type === 'percent' ? `${value}%` : `Rp ${value.toLocaleString('id-ID')}`;
