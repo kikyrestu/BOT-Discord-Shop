@@ -253,6 +253,14 @@ client.once(Events.ClientReady, async (c) => {
                     )
             ),
         new SlashCommandBuilder()
+            .setName('testwelcome')
+            .setDescription('Preview welcome banner (Owner only)')
+            .addUserOption(opt =>
+                opt.setName('target')
+                    .setDescription('User untuk di-preview (default: kamu sendiri)')
+                    .setRequired(false)
+            ),
+        new SlashCommandBuilder()
             .setName('help')
             .setDescription('Panduan penggunaan bot untuk buyer/member'),
         new SlashCommandBuilder()
@@ -289,6 +297,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (interaction.commandName === 'updpanduan')   await handleUpdPanduan(interaction);
             if (interaction.commandName === 'config')        await handleConfigCommand(interaction);
             if (interaction.commandName === 'rbac')           await handleRbacCommand(interaction);
+            if (interaction.commandName === 'testwelcome') {
+                if (interaction.isChatInputCommand() && interaction.guild) {
+                    if (interaction.user.id !== OWNER_ID) {
+                        await interaction.reply({ content: '❌ Hanya Owner.', ephemeral: true });
+                    } else {
+                        const targetUser = interaction.options.getUser('target') ?? interaction.user;
+                        const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+                        if (!member) {
+                            await interaction.reply({ content: '❌ Member tidak ditemukan di server ini.', ephemeral: true });
+                        } else {
+                            await interaction.deferReply({ ephemeral: true });
+                            await handleMemberJoin(member);
+                            await interaction.editReply({ content: `✅ Welcome banner dikirim ke <#${interaction.guild.channels.cache.find(c => c.name === '👋-welcome')?.id ?? '?'}>.` });
+                        }
+                    }
+                }
+            }
             if (interaction.commandName === 'help')           await handleHelp(interaction);
             if (interaction.commandName === 'shelp')          await handleSellerHelp(interaction);
             if (interaction.commandName === 'devhelp')        await handleDevHelp(interaction);
